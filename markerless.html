@@ -4,112 +4,389 @@
   <meta charset="utf-8">
   <title>Markerless AR - Solar System</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
   <style>
     html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; font-family: sans-serif; }
-    model-viewer { width: 100vw; height: 100vh; display: block; }
-
-    #top-bar {
-      position: fixed; top: 0; left: 0; right: 0;
-      display: flex; justify-content: center; gap: 10px;
-      padding: 14px 10px; z-index: 999;
+    canvas { display: block; }
+    #instructions {
+      position: fixed; top: 16px; left: 16px; right: 16px;
+      background: rgba(0,0,0,0.75); color: white; padding: 10px 14px;
+      border-radius: 10px; font-size: 13px; text-align: center; z-index: 999;
     }
-    .toggle-btn {
-      padding: 10px 20px; font-size: 15px; font-weight: bold;
-      border: 2px solid #4CC3D9; border-radius: 20px;
-      background: white; color: #4CC3D9;
-    }
-    .toggle-btn.active {
-      background: #4CC3D9; color: white;
-    }
-
     #iss-info {
       position: fixed; top: 64px; left: 16px; right: 16px;
-      background: rgba(0,0,0,0.75); color: white; padding: 10px 14px;
-      border-radius: 10px; font-size: 13px; z-index: 999; text-align: center;
-    }
-
-    #ar-button {
-      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
-      padding: 14px 32px; font-size: 18px; font-weight: bold;
-      background: #4CC3D9; color: white; border: none; border-radius: 10px; z-index: 999;
-
-      #instructions {
-      position: fixed; top: 108px; left: 16px; right: 16px;
-      background: rgba(0,0,0,0.7); color: white; padding: 8px 14px;
+      background: rgba(0,0,0,0.75); color: white; padding: 8px 14px;
       border-radius: 10px; font-size: 12px; text-align: center; z-index: 999;
-}
+    }
+    #back-link {
+      position: fixed; bottom: 20px; left: 20px;
+      background: rgba(0,0,0,0.75); color: white; padding: 10px 18px;
+      border-radius: 20px; font-size: 13px; text-decoration: none; z-index: 999;
+    }
+    #speed-label {
+      position: fixed; bottom: 20px; right: 20px;
+      background: rgba(0,0,0,0.75); color: white; padding: 10px 18px;
+      border-radius: 20px; font-size: 13px; font-weight: bold; z-index: 999;
+    }
+    #loading {
+      position: fixed; top: 110px; left: 16px; right: 16px;
+      background: rgba(0,0,0,0.85); color: #ffcc66; padding: 8px 14px;
+      border-radius: 10px; font-size: 12px; text-align: center;
+      z-index: 500; pointer-events: none;
+    }
+    #loading.hidden { display: none; }
+    #sound-hint {
+      position: fixed; top: 40%; left: 50%; transform: translate(-50%, -50%);
+      background: rgba(0,0,0,0.85); color: white; padding: 14px 22px;
+      border-radius: 12px; font-size: 14px; z-index: 500; text-align: center;
+      pointer-events: none;
+    }
+    #debug {
+      position: fixed; bottom: 70px; left: 16px; right: 16px;
+      background: rgba(0,0,0,0.6); color: #0f0; padding: 6px 12px;
+      border-radius: 8px; font-size: 10px; font-family: monospace;
+      z-index: 500; text-align: center; pointer-events: none;
     }
   </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
 </head>
 <body>
-
-  <div id="top-bar">
-    <button class="toggle-btn active" id="btn-earth">🌍 Earth</button>
-    <button class="toggle-btn" id="btn-iss">🛰️ ISS</button>
-  </div>
-
-  <div id="instructions">👆 Tap "View in AR", then point your phone at the floor</div>
+  <div id="loading">Loading 3D models…</div>
+  <div id="sound-hint">🔊 Tap anywhere to enable sound</div>
+  <div id="instructions">👆 Tap "START AR" below, then move your phone slowly over a well-lit, textured surface (not a blank/dark area) until a blue ring appears. Tap the ring to place. Tap the screen again (inside AR) to change orbit speed — the "Speed" label below just shows the current value, it is not a button.</div>
   <div id="iss-info">Loading live ISS location...</div>
+  <div id="debug">debug: waiting…</div>
+  <a href="./index.html" id="back-link">← Home</a>
+  <div id="speed-label">Speed: Normal</div>
 
-  <model-viewer
-    id="viewer"
-    src="./earth.glb"
-    alt="3D model"
-    ar
-    ar-modes="webxr scene-viewer quick-look"
-    camera-controls
-    auto-rotate
-    ar-placement="floor"
-    shadow-intensity="1">
-  </model-viewer>
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { ARButton } from 'three/addons/webxr/ARButton.js';
 
-  <button id="ar-button">View in AR</button>
+    let camera, scene, renderer;
+    let reticle, hitTestSource = null, hitTestSourceRequested = false;
+    let placedGroup, orbitPivot;
+    let earthLoaded = false, issLoaded = false;
 
-  <script>
-    const viewer = document.querySelector('#viewer');
-    const arButton = document.querySelector('#ar-button');
-    const issInfo = document.querySelector('#iss-info');
-    const btnEarth = document.querySelector('#btn-earth');
-    const btnIss = document.querySelector('#btn-iss');
+    const speedLabels = ['Slow', 'Normal', 'Fast'];
+    const speeds = [0.15, 0.6, 1.5];
+    let speedIndex = 1;
+    let placed = false;
 
-    // Toggle between Earth and ISS models
-    btnEarth.addEventListener('click', () => {
-      viewer.src = './earth.glb';
-      btnEarth.classList.add('active');
-      btnIss.classList.remove('active');
-    });
+    const ORBIT_RADIUS = 0.45;
+    const EARTH_SIZE = 0.25;
+    const ISS_SIZE = 0.08;
 
-    btnIss.addEventListener('click', () => {
-      viewer.src = './iss.glb';
-      btnIss.classList.add('active');
-      btnEarth.classList.remove('active');
-    });
+    init();
+    animate();
 
-    // AR button
-    arButton.addEventListener('click', () => {
-      viewer.activateAR();
-    });
+    function normalizeModel(object3D, targetSize) {
+      const box = new THREE.Box3().setFromObject(object3D);
+      const size = new THREE.Vector3();
+      box.getSize(size);
+      const maxDim = Math.max(size.x, size.y, size.z) || 1;
+      const scale = targetSize / maxDim;
+      object3D.scale.setScalar(scale);
 
-    // Live ISS location - updates every 5 seconds regardless of which model is shown
+      const box2 = new THREE.Box3().setFromObject(object3D);
+      const center = new THREE.Vector3();
+      box2.getCenter(center);
+      object3D.position.sub(center);
+
+      const container = new THREE.Group();
+      container.add(object3D);
+      return container;
+    }
+
+    function checkAllLoaded() {
+      if (earthLoaded && issLoaded) {
+        document.getElementById('loading').classList.add('hidden');
+      }
+    }
+
+    setTimeout(() => {
+      if (!(earthLoaded && issLoaded)) {
+        const el = document.getElementById('loading');
+        el.textContent = '⚠️ Models still not loaded after 10s. Check: (1) you opened this via http:// or https://, NOT by double-clicking the file, (2) earth.glb and iss.glb are in the same folder as this page, (3) browser console (F12) for the real error.';
+        el.style.color = '#ff6666';
+      }
+    }, 10000);
+
+    function init() {
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+
+      const light = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2);
+      scene.add(light);
+      const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+      dirLight.position.set(1, 1, 1);
+      scene.add(dirLight);
+
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.xr.enabled = true;
+      document.body.appendChild(renderer.domElement);
+
+      const arButton = ARButton.createButton(renderer, { requiredFeatures: ['hit-test'] });
+      arButton.style.zIndex = '2000';
+      arButton.style.opacity = '1';
+      arButton.addEventListener('click', enableSoundOnce);
+      document.body.appendChild(arButton);
+
+      const reticleGeo = new THREE.RingGeometry(0.08, 0.1, 32).rotateX(-Math.PI / 2);
+      const reticleMat = new THREE.MeshBasicMaterial({ color: 0x4CC3D9 });
+      reticle = new THREE.Mesh(reticleGeo, reticleMat);
+      reticle.matrixAutoUpdate = false;
+      reticle.visible = false;
+      scene.add(reticle);
+
+      placedGroup = new THREE.Group();
+      placedGroup.visible = false;
+      scene.add(placedGroup);
+
+      orbitPivot = new THREE.Group();
+      orbitPivot.rotation.x = THREE.MathUtils.degToRad(20);
+      placedGroup.add(orbitPivot);
+
+      const loader = new GLTFLoader();
+
+      loader.load('./earth.glb', (gltf) => {
+        const box = new THREE.Box3().setFromObject(gltf.scene);
+        const size = new THREE.Vector3();
+        box.getSize(size);
+        console.log('earth.glb raw bounding box size:', size);
+        const earthContainer = normalizeModel(gltf.scene, EARTH_SIZE);
+        earthContainer.userData.isEarth = true;
+        placedGroup.add(earthContainer);
+        earthLoaded = true;
+        checkAllLoaded();
+        updateDebug();
+      }, undefined, (err) => {
+        console.error('Failed to load earth.glb', err);
+        document.getElementById('loading').textContent = 'Could not load earth.glb — check the file exists next to this page and you are using http(s)://, not file://.';
+        document.getElementById('loading').style.color = '#ff6666';
+      });
+
+      loader.load('./iss.glb', (gltf) => {
+        const box = new THREE.Box3().setFromObject(gltf.scene);
+        const size = new THREE.Vector3();
+        box.getSize(size);
+        console.log('iss.glb raw bounding box size:', size);
+        const issContainer = normalizeModel(gltf.scene, ISS_SIZE);
+        issContainer.position.set(ORBIT_RADIUS, 0, 0);
+        orbitPivot.add(issContainer);
+        issLoaded = true;
+        checkAllLoaded();
+        updateDebug();
+      }, undefined, (err) => {
+        console.error('Failed to load iss.glb', err);
+        document.getElementById('loading').textContent = 'Could not load iss.glb — check the file exists next to this page and you are using http(s)://, not file://.';
+        document.getElementById('loading').style.color = '#ff6666';
+      });
+
+      renderer.xr.addEventListener('sessionend', onSessionEnd);
+
+      const controller = renderer.xr.getController(0);
+      controller.addEventListener('select', onSelect);
+      scene.add(controller);
+
+      window.addEventListener('resize', onWindowResize);
+
+      document.body.addEventListener('click', enableSoundOnce);
+      document.body.addEventListener('touchstart', enableSoundOnce);
+
+      updateISSLocation();
+      setInterval(updateISSLocation, 5000);
+    }
+
+    function onSelect() {
+      enableSoundOnce();
+
+      if (!placed && reticle.visible) {
+        placedGroup.position.setFromMatrixPosition(reticle.matrix);
+        placedGroup.visible = true;
+        placed = true;
+        reticle.visible = false;
+      } else if (placed) {
+        speedIndex = (speedIndex + 1) % speeds.length;
+        document.getElementById('speed-label').textContent = 'Speed: ' + speedLabels[speedIndex];
+        playSpeedChangeBlip();
+      }
+    }
+
+    function onSessionEnd() {
+      placed = false;
+      placedGroup.visible = false;
+      reticle.visible = false;
+    }
+
+    function updateDebug() {
+      const el = document.getElementById('debug');
+      if (!el) return;
+      let distText = '--';
+      if (placed) {
+        camera.getWorldPosition(camWorldPos);
+        placedGroup.getWorldPosition(groupWorldPos);
+        const d = camWorldPos.distanceTo(groupWorldPos);
+        distText = `${d.toFixed(2)}m (range seen: ${minSeen === Infinity ? '--' : minSeen.toFixed(2)}–${maxSeen === -Infinity ? '--' : maxSeen.toFixed(2)}m)`;
+      }
+      let hint = '';
+      if (renderer.xr.isPresenting && !placed && hitTestSource && !reticle.visible) {
+        hint = ' ⚠️ No surface found yet — move phone slowly over a well-lit, textured surface (not blank/dark/shiny).';
+      }
+      el.textContent =
+        `earth: ${earthLoaded} | iss: ${issLoaded} | reticle: ${reticle ? reticle.visible : '--'} | ` +
+        `placed: ${placed} | audio: ${audioReady} | dist: ${distText}${hint}`;
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    let audioCtx, oscillator, oscillator2, filterNode, gainNode, audioReady = false;
+
+    function enableSoundOnce() {
+      if (audioReady) {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        return;
+      }
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+      oscillator = audioCtx.createOscillator();
+      oscillator.type = 'sine';
+      oscillator.frequency.value = 180;
+
+      oscillator2 = audioCtx.createOscillator();
+      oscillator2.type = 'sine';
+      oscillator2.frequency.value = 180 * 1.5;
+
+      filterNode = audioCtx.createBiquadFilter();
+      filterNode.type = 'lowpass';
+      filterNode.frequency.value = 600;
+
+      gainNode = audioCtx.createGain();
+      gainNode.gain.value = 0;
+
+      oscillator.connect(filterNode);
+      oscillator2.connect(filterNode);
+      filterNode.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+
+      oscillator.start();
+      oscillator2.start();
+      audioReady = true;
+
+      document.getElementById('sound-hint').style.display = 'none';
+    }
+
+    function playSpeedChangeBlip() {
+      if (!audioReady) return;
+      const now = audioCtx.currentTime;
+      const basePitch = 180 + speedIndex * 120;
+      oscillator.frequency.setTargetAtTime(basePitch, now, 0.05);
+      oscillator2.frequency.setTargetAtTime(basePitch * 1.5, now, 0.05);
+      gainNode.gain.cancelScheduledValues(now);
+      gainNode.gain.setValueAtTime(gainNode.gain.value, now);
+      gainNode.gain.linearRampToValueAtTime(0.35, now + 0.05);
+      gainNode.gain.linearRampToValueAtTime(0.12, now + 0.3);
+    }
+
+    const camWorldPos = new THREE.Vector3();
+    const groupWorldPos = new THREE.Vector3();
+    let minSeen = Infinity;
+    let maxSeen = -Infinity;
+
+    function updateSound() {
+      if (!audioReady) return;
+      if (placed) {
+        camera.getWorldPosition(camWorldPos);
+        placedGroup.getWorldPosition(groupWorldPos);
+        const distance = camWorldPos.distanceTo(groupWorldPos);
+
+        if (distance < minSeen) minSeen = distance;
+        if (distance > maxSeen) maxSeen = distance;
+        const range = Math.max(maxSeen - minSeen, 0.0001);
+
+        const closeness = 1 - (distance - minSeen) / range;
+        const volume = 0.08 + closeness * 0.22;
+        const filterFreq = 400 + closeness * 900 + speedIndex * 200;
+
+        gainNode.gain.setTargetAtTime(volume, audioCtx.currentTime, 0.3);
+        filterNode.frequency.setTargetAtTime(filterFreq, audioCtx.currentTime, 0.3);
+      } else {
+        gainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.3);
+      }
+    }
+
     async function updateISSLocation() {
       try {
         const response = await fetch('https://api.wheretheiss.at/v1/satellites/25544');
         const data = await response.json();
-        const lat = data.latitude.toFixed(2);
-        const lon = data.longitude.toFixed(2);
-        const altitude = data.altitude.toFixed(1);
-        const velocity = data.velocity.toFixed(0);
-
-        issInfo.innerHTML =
-          `🛰️ ISS Live — Lat ${lat}°, Lon ${lon}° · Alt ${altitude} km · ${velocity} km/h`;
-      } catch (error) {
-        issInfo.textContent = "Could not fetch ISS data — check internet connection";
+        document.querySelector('#iss-info').innerHTML =
+          `🛰️ ISS Live — Lat ${data.latitude.toFixed(2)}°, Lon ${data.longitude.toFixed(2)}° · ` +
+          `Alt ${data.altitude.toFixed(1)} km · ${data.velocity.toFixed(0)} km/h`;
+      } catch (e) {
+        document.querySelector('#iss-info').textContent = "Could not fetch ISS data";
       }
     }
 
-    updateISSLocation();
-    setInterval(updateISSLocation, 5000);
+    const clock = new THREE.Clock();
+
+    function animate() {
+      renderer.setAnimationLoop(render);
+    }
+
+    function render(timestamp, frame) {
+      const delta = clock.getDelta();
+
+      placedGroup.children.forEach((child) => {
+        if (child.userData.isEarth) child.rotation.y += delta * 0.6;
+      });
+      orbitPivot.rotation.y += delta * speeds[speedIndex];
+
+      if (frame) {
+        const referenceSpace = renderer.xr.getReferenceSpace();
+        const session = renderer.xr.getSession();
+
+        if (!hitTestSourceRequested) {
+          session.requestReferenceSpace('viewer').then((viewerSpace) => {
+            session.requestHitTestSource({ space: viewerSpace }).then((source) => {
+              hitTestSource = source;
+            });
+          });
+          session.addEventListener('end', () => {
+            hitTestSourceRequested = false;
+            hitTestSource = null;
+          });
+          hitTestSourceRequested = true;
+        }
+
+        if (hitTestSource && !placed) {
+          const hitTestResults = frame.getHitTestResults(hitTestSource);
+          if (hitTestResults.length > 0) {
+            const hit = hitTestResults[0];
+            reticle.visible = true;
+            reticle.matrix.fromArray(hit.getPose(referenceSpace).transform.matrix);
+          } else {
+            reticle.visible = false;
+          }
+        }
+      }
+
+      updateSound();
+      updateDebug();
+      renderer.render(scene, camera);
+    }
   </script>
 </body>
 </html>
