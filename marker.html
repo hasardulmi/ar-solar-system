@@ -4,25 +4,44 @@
   <meta charset="utf-8">
   <title>Marker AR - Solar System</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
-  <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+  <script src="https://unpkg.com/aframe@1.4.2/dist/aframe.min.js"></script>
+  <script src="https://unpkg.com/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
   <style>
     body { margin: 0; font-family: sans-serif; }
     #instructions {
       position: fixed; top: 16px; left: 16px; right: 16px;
-      background: rgba(0,0,0,0.75); color: white; padding: 12px 16px;
-      border-radius: 10px; font-size: 14px; text-align: center; z-index: 999;
+      background: rgba(0,0,0,0.75); color: white; padding: 10px 14px;
+      border-radius: 10px; font-size: 13px; text-align: center; z-index: 999;
+    }
+    #debug {
+      position: fixed; top: 70px; left: 16px; right: 16px;
+      background: rgba(0,0,0,0.6); color: #0f0; padding: 6px 12px;
+      border-radius: 8px; font-size: 11px; font-family: monospace; z-index: 999; text-align: center;
     }
     #back-link {
-      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
-      background: rgba(0,0,0,0.75); color: white; padding: 10px 20px;
-      border-radius: 20px; font-size: 14px; text-decoration: none; z-index: 999;
+      position: fixed; bottom: 20px; left: 20px;
+      background: rgba(0,0,0,0.75); color: white; padding: 10px 18px;
+      border-radius: 20px; font-size: 13px; text-decoration: none; z-index: 999;
+    }
+    #speed-btn {
+      position: fixed; bottom: 20px; right: 20px;
+      background: #4CC3D9; color: white; padding: 10px 18px;
+      border: none; border-radius: 20px; font-size: 13px; font-weight: bold; z-index: 999;
+    }
+    #loading {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: black; color: white; display: flex;
+      align-items: center; justify-content: center;
+      font-size: 18px; z-index: 1000;
     }
   </style>
 </head>
 <body>
-  <div id="instructions">📷 Point your camera at the marker image to see Earth appear</div>
-  <a href="./index.html" id="back-link">← Back to Home</a>
+  <div id="loading">Loading AR experience...</div>
+  <div id="instructions">📷 Point at the marker · move closer/farther for sound changes</div>
+  <div id="debug">distance: -- | volume: --</div>
+  <a href="./index.html" id="back-link">← Home</a>
+  <button id="speed-btn">Speed: Normal</button>
 
   <a-scene
     mindar-image="imageTargetSrc: ./targets.mind;"
@@ -33,22 +52,144 @@
   >
     <a-assets>
       <a-asset-item id="earthModel" src="./earth.glb"></a-asset-item>
+      <a-asset-item id="issModel" src="./iss.glb"></a-asset-item>
     </a-assets>
 
-    <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+    <a-camera id="camera" position="0 0 0" look-controls="enabled: false"></a-camera>
 
     <a-light type="ambient" color="#ffffff" intensity="0.7"></a-light>
     <a-light type="directional" color="#ffffff" intensity="0.8" position="1 1 1"></a-light>
 
-    <a-entity mindar-image-target="targetIndex: 0">
-      <a-gltf-model
-        rotation="0 0 0"
-        position="0 0 0.1"
-        scale="0.3 0.3 0.3"
-        src="#earthModel"
-        animation="property: rotation; to: 0 360 0; loop: true; dur: 8000; easing: linear"
-      ></a-gltf-model>
+    <a-entity id="target" mindar-image-target="targetIndex: 0">
+      <a-entity id="earth" gltf-model="#earthModel" position="0 0 0.1" scale="0.3 0.3 0.3"></a-entity>
+      <a-entity id="orbitPivot" position="0 0 0.1" rotation="20 0 0">
+        <a-entity id="iss" gltf-model="#issModel" position="0.45 0.1 0" scale="0.04 0.04 0.04" rotation="0 90 0"></a-entity>
+      </a-entity>
     </a-entity>
   </a-scene>
+
+  <script>
+    const sceneEl = document.querySelector('a-scene');
+    const loadingEl = document.querySelector('#loading');
+    const targetEl = document.querySelector('#target');
+    const cameraEl = document.querySelector('#camera');
+    const earthEl = document.querySelector('#earth');
+    const orbitPivot = document.querySelector('#orbitPivot');
+    const speedBtn = document.querySelector('#speed-btn');
+    const debugEl = document.querySelector('#debug');
+
+    sceneEl.addEventListener('renderstart', () => {
+      loadingEl.style.display = 'none';
+    });
+
+    // --- Manual rotation loop (reliable, no animation-component glitches) ---
+    const speeds = [
+      { earthSpeed: 15, issSpeed: 45, label: 'Slow' },
+      { earthSpeed: 40, issSpeed: 120, label: 'Normal' },
+      { earthSpeed: 90, issSpeed: 270, label: 'Fast' }
+    ];
+    let speedIndex = 1;
+    let earthAngle = 0;
+    let issAngle = 0;
+    let lastTime = performance.now();
+
+    function tick(now) {
+      const dt = (now - lastTime) / 1000;
+      lastTime = now;
+      earthAngle = (earthAngle + speeds[speedIndex].earthSpeed * dt) % 360;
+      issAngle = (issAngle + speeds[speedIndex].issSpeed * dt) % 360;
+      earthEl.setAttribute('rotation', `0 ${earthAngle} 0`);
+      orbitPivot.setAttribute('rotation', `20 ${issAngle} 0`);
+      requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+
+    speedBtn.addEventListener('click', () => {
+      speedIndex = (speedIndex + 1) % speeds.length;
+      speedBtn.textContent = 'Speed: ' + speeds[speedIndex].label;
+    });
+
+    // --- Audio setup (soft ambient pad sound) ---
+    let audioCtx, oscillator, oscillator2, filterNode, gainNode, audioStarted = false;
+    let markerVisible = false;
+
+    function ensureAudio() {
+      if (!audioStarted) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+        oscillator = audioCtx.createOscillator();
+        oscillator.type = 'sine';
+        oscillator.frequency.value = 130;
+
+        oscillator2 = audioCtx.createOscillator();
+        oscillator2.type = 'sine';
+        oscillator2.frequency.value = 130 * 1.5;
+
+        filterNode = audioCtx.createBiquadFilter();
+        filterNode.type = 'lowpass';
+        filterNode.frequency.value = 800;
+
+        gainNode = audioCtx.createGain();
+        gainNode.gain.value = 0;
+
+        oscillator.connect(filterNode);
+        oscillator2.connect(filterNode);
+        filterNode.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+
+        oscillator.start();
+        oscillator2.start();
+        audioStarted = true;
+      }
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+    }
+
+    document.body.addEventListener('touchstart', ensureAudio);
+    document.body.addEventListener('click', ensureAudio);
+
+    targetEl.addEventListener('targetFound', () => {
+      ensureAudio();
+      markerVisible = true;
+    });
+    targetEl.addEventListener('targetLost', () => {
+      markerVisible = false;
+      if (gainNode) gainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.3);
+    });
+
+    // --- Auto-calibrating distance-based volume + tone brightness ---
+    const camWorldPos = new THREE.Vector3();
+    const targetWorldPos = new THREE.Vector3();
+
+    let minSeen = Infinity;
+    let maxSeen = -Infinity;
+
+    function updateSoundByDistance() {
+      if (markerVisible && gainNode && cameraEl.object3D && targetEl.object3D) {
+        cameraEl.object3D.getWorldPosition(camWorldPos);
+        targetEl.object3D.getWorldPosition(targetWorldPos);
+        const distance = camWorldPos.distanceTo(targetWorldPos);
+
+        if (distance < minSeen) minSeen = distance;
+        if (distance > maxSeen) maxSeen = distance;
+        const range = Math.max(maxSeen - minSeen, 0.0001);
+
+        const closeness = 1 - (distance - minSeen) / range;
+        const volume = 0.15 + closeness * 0.35;
+        const filterFreq = 400 + closeness * 1200;
+        const pitch = 120 + closeness * 40;
+
+        gainNode.gain.setTargetAtTime(volume, audioCtx.currentTime, 0.3);
+        filterNode.frequency.setTargetAtTime(filterFreq, audioCtx.currentTime, 0.3);
+        oscillator.frequency.setTargetAtTime(pitch, audioCtx.currentTime, 0.3);
+        oscillator2.frequency.setTargetAtTime(pitch * 1.5, audioCtx.currentTime, 0.3);
+
+        debugEl.textContent = `dist: ${distance.toFixed(0)} | range: ${minSeen.toFixed(0)}-${maxSeen.toFixed(0)} | vol: ${volume.toFixed(2)}`;
+      } else {
+        debugEl.textContent = 'marker not visible';
+      }
+      requestAnimationFrame(updateSoundByDistance);
+    }
+    updateSoundByDistance();
+  </script>
 </body>
 </html>
