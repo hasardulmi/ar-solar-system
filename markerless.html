@@ -44,6 +44,13 @@
       border-radius: 8px; font-size: 10px; font-family: monospace;
       z-index: 500; text-align: center; pointer-events: none;
     }
+
+    /* Visual sound indicator — pulses in sync with the beacon, for users who can't hear it */
+    #sound-pulse {
+      position: fixed; inset: 0; pointer-events: none; z-index: 400;
+      background: radial-gradient(circle at 50% 65%, rgba(102,204,255,0.4), transparent 55%);
+      opacity: 0; transition: opacity 0.15s ease-out;
+    }
   </style>
   <script type="importmap">
   {
@@ -56,6 +63,7 @@
 </head>
 <body>
   <div id="loading">Loading 3D models…</div>
+  <div id="sound-pulse"></div>
   <div id="instructions">👆 Tap "START AR", scan a surface, TAP the ring to place. Use Next/Prev to move the astronaut. Get closer for louder sound.</div>
   <div id="iss-info">Loading live ISS location...</div>
   <a href="./index.html" id="back-link">← Home</a>
@@ -73,8 +81,14 @@
     import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
     import { ARButton } from 'three/addons/webxr/ARButton.js';
 
-    // Hide the debug overlay by default — add ?debug to the URL to see it
     if (!location.search.includes('debug')) document.getElementById('debug').style.display = 'none';
+
+    // Haptic feedback helper — safely no-ops on devices/browsers without vibration support (e.g. iOS Safari)
+    function vibrate(pattern) {
+      if (navigator.vibrate) navigator.vibrate(pattern);
+    }
+
+    const soundPulseEl = document.getElementById('sound-pulse');
 
     let camera, scene, renderer;
     let reticle, hitTestSource = null, hitTestSourceRequested = false;
@@ -106,9 +120,6 @@
     let jumpState = 'idle';
     let jumpTimer = 0;
 
-    // Squash & stretch on landing — astronautContainer's own scale is the
-    // "neutral" (1,1,1) wrapper from normalizeModel, so we can animate it
-    // directly as a multiplier without needing to track a base scale.
     let squashTimer = 0;
     const SQUASH_DURATION = 0.25;
 
@@ -186,7 +197,7 @@
       renderer.xr.enabled = true;
       renderer.shadowMap.enabled = true;
       renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-      renderer.outputColorSpace = THREE.SRGBColorSpace; // correct PBR color rendering, matches marker.html's colorManagement
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
       document.body.appendChild(renderer.domElement);
 
       const arButton = ARButton.createButton(renderer, {
@@ -195,7 +206,7 @@
         domOverlay: { root: document.body }
       });
       arButton.style.zIndex = '2000';
-      arButton.style.opacity = '1'; // library defaults to 0.5 with no hover-brighten on touch devices
+      arButton.style.opacity = '1';
       arButton.addEventListener('click', enableSoundOnce);
       document.body.appendChild(arButton);
 
@@ -249,6 +260,7 @@
       document.getElementById('speed-btn').addEventListener('click', () => {
         speedIndex = (speedIndex + 1) % speeds.length;
         document.getElementById('speed-btn').textContent = 'Speed: ' + speeds[speedIndex].label;
+        vibrate(10);
         enableSoundOnce();
       });
       document.getElementById('next-btn').addEventListener('click', () => {
@@ -272,7 +284,8 @@
       jumpDirection = direction;
       jumpState = 'jumping';
       jumpTimer = 0;
-      playBlip(300, 900, 0.25); // whoosh
+      vibrate(20);
+      playBlip(300, 900, 0.25);
     }
 
     function updateAstronaut(dt) {
@@ -302,15 +315,14 @@
       const y = from.y + (to.y - from.y) * t + arc;
 
       astronautContainer.position.set(x, y, z);
-
-      // Face the direction of travel
       astronautContainer.rotation.y = jumpDirection > 0 ? Math.PI / 2 : -Math.PI / 2;
 
       if (t >= 1) {
         currentIndex = nextIndex;
         jumpState = 'idle';
         squashTimer = SQUASH_DURATION;
-        playBlip(500, 150, 0.2); // thud
+        vibrate([25, 15, 25]);
+        playBlip(500, 150, 0.2);
       }
     }
 
@@ -321,9 +333,8 @@
         placedGroup.visible = true;
         placed = true;
         reticle.visible = false;
+        vibrate(30);
       }
-      // Movement is now Next/Prev-button driven (see controls), for
-      // consistency with the marker-based experience's UI language.
     }
 
     function onSessionEnd() {
@@ -437,7 +448,18 @@
       const delta = clock.getDelta();
       if (earthContainer) earthContainer.rotation.y += delta * speeds[speedIndex].earthSpeed;
       updateAstronaut(delta);
-      if (beaconLight) beaconLight.intensity = 0.4 + Math.sin(timestamp / 300) * 0.25;
+
+      if (beaconLight) {
+        beaconLight.intensity = 0.4 + Math.sin(timestamp / 300) * 0.25;
+      }
+
+      // Visual sound indicator — glow pulses in sync with the beacon (accessibility: works without audio)
+      if (placed && beaconLight) {
+        const pulseNorm = (beaconLight.intensity - 0.15) / (0.65 - 0.15);
+        soundPulseEl.style.opacity = Math.max(0, Math.min(0.6, pulseNorm * 0.6));
+      } else {
+        soundPulseEl.style.opacity = 0;
+      }
 
       if (frame) {
         const referenceSpace = renderer.xr.getReferenceSpace();
