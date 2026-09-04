@@ -1,56 +1,90 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Markerless AR - Solar System</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Markerless AR — Solar System Explorer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <style>
-    html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; font-family: sans-serif; }
-    canvas { display: block; }
+    :root{ --accent:#b388ff; }
+    html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    canvas { display: block; touch-action: none; }
     #instructions {
-      position: fixed; top: 16px; left: 16px; right: 16px;
-      background: rgba(0,0,0,0.75); color: white; padding: 10px 14px;
-      border-radius: 10px; font-size: 12px; text-align: center; z-index: 999;
+      position: fixed; top: 14px; left: 14px; right: 14px;
+      background: rgba(8,5,18,0.8); color: white; padding: 10px 14px;
+      border-radius: 12px; font-size: 12px; text-align: center; z-index: 999;
+      border: 1px solid rgba(179,136,255,0.35);
     }
     #iss-info {
-      position: fixed; top: 60px; left: 16px; right: 16px;
-      background: rgba(0,0,0,0.75); color: white; padding: 8px 14px;
-      border-radius: 10px; font-size: 12px; text-align: center; z-index: 999;
+      position: fixed; top: 58px; left: 14px; right: 14px;
+      background: rgba(8,5,18,0.8); color: #d7c4ff; padding: 7px 14px;
+      border-radius: 10px; font-size: 11px; text-align: center; z-index: 999;
+      border: 1px solid rgba(179,136,255,0.2);
     }
     #back-link {
-      position: fixed; top: 100px; left: 16px;
-      background: rgba(0,0,0,0.75); color: white; padding: 8px 16px;
+      position: fixed; top: 100px; left: 14px;
+      background: rgba(8,5,18,0.8); color: white; padding: 8px 16px;
       border-radius: 20px; font-size: 12px; text-decoration: none; z-index: 999;
+      border: 1px solid rgba(255,255,255,0.15);
     }
     #controls {
-      position: fixed; bottom: 20px; right: 16px;
-      display: flex; flex-direction: column; gap: 8px; z-index: 2000;
+      position: fixed; bottom: 20px; right: 14px;
+      display: flex; flex-direction: column; align-items: flex-end; gap: 8px; z-index: 2000;
     }
     #controls-row { display: flex; gap: 8px; }
-    #next-btn, #prev-btn, #speed-btn {
-      background: #4CC3D9; color: white; padding: 8px 14px;
-      border: none; border-radius: 20px; font-size: 12px; font-weight: bold;
+    button.pill {
+      background: rgba(179,136,255,0.92); color: #0a0616; padding: 9px 14px;
+      border: none; border-radius: 20px; font-size: 12px; font-weight: 700;
+      font-family: inherit;
     }
+    button.pill.ghost{ background: rgba(255,255,255,0.1); color: white; border: 1px solid rgba(255,255,255,0.25); }
     #loading {
-      position: fixed; top: 100px; left: 16px; right: 16px;
-      background: rgba(0,0,0,0.85); color: #ffcc66; padding: 8px 14px;
+      position: fixed; top: 100px; left: 14px; right: 14px;
+      background: rgba(8,5,18,0.9); color: #e8ddff; padding: 10px 14px;
       border-radius: 10px; font-size: 12px; text-align: center;
-      z-index: 500; pointer-events: none;
+      z-index: 1500; pointer-events: none;
     }
     #loading.hidden { display: none; }
+    #loading-bar-track{ width:100%; height:5px; border-radius:4px; background:rgba(255,255,255,0.15); overflow:hidden; margin-top:8px; }
+    #loading-bar-fill{ height:100%; width:0%; background:linear-gradient(90deg,var(--accent),#4cc3d9); transition:width .15s ease; }
     #debug {
-      position: fixed; bottom: 90px; left: 16px; right: 16px;
-      background: rgba(0,0,0,0.6); color: #0f0; padding: 6px 12px;
-      border-radius: 8px; font-size: 10px; font-family: monospace;
-      z-index: 500; text-align: center; pointer-events: none;
+      position: fixed; bottom: 100px; left: 14px; right: 120px;
+      background: rgba(0,0,0,0.6); color: #7CFC7C; padding: 6px 12px;
+      border-radius: 8px; font-size: 9px; font-family: monospace;
+      z-index: 500; text-align: left; pointer-events: none;
     }
-
-    /* Visual sound indicator — pulses in sync with the beacon, for users who can't hear it */
     #sound-pulse {
       position: fixed; inset: 0; pointer-events: none; z-index: 400;
-      background: radial-gradient(circle at 50% 65%, rgba(102,204,255,0.4), transparent 55%);
+      background: radial-gradient(circle at 50% 65%, rgba(179,136,255,0.35), transparent 55%);
       opacity: 0; transition: opacity 0.15s ease-out;
     }
+    #gesture-hint{
+      position: fixed; left:14px; right:14px; bottom: 84px;
+      text-align:center; color: rgba(255,255,255,0.55); font-size: 11px; z-index: 998;
+      pointer-events:none;
+    }
+
+    /* Multi-step info card — appears after tapping a body */
+    #info-card{
+      position: fixed; left: 14px; right: 14px; bottom: 84px;
+      background: rgba(10,6,22,0.92); border: 1px solid rgba(179,136,255,0.4);
+      border-radius: 16px; padding: 16px 18px; color: white; z-index: 1600;
+      transform: translateY(140%); transition: transform .25s ease;
+      max-width: 480px; margin: 0 auto;
+    }
+    #info-card.open{ transform: translateY(0); }
+    #info-card h3{ margin:0 0 6px; font-size:16px; display:flex; align-items:center; gap:8px; }
+    #info-card p{ margin:0; font-size:13px; color:#cbd0e6; line-height:1.5; }
+    #info-card .live{ margin-top:8px; font-size:11px; color: var(--accent); font-family: monospace; }
+    #info-card .close{ position:absolute; top:10px; right:12px; color:#9aa3c0; font-size:16px; }
+    #info-dot{ width:10px; height:10px; border-radius:50%; display:inline-block; }
+
+    #no-webxr {
+      position: fixed; inset: 0; background: #05060f; color: white; z-index: 3000;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      text-align: center; padding: 30px; gap: 14px;
+    }
+    #no-webxr.hidden{ display:none; }
+    #no-webxr a.btn{ background: var(--accent); color:#0a0616; text-decoration:none; padding:12px 20px; border-radius:12px; font-weight:700; }
   </style>
   <script type="importmap">
   {
@@ -62,69 +96,252 @@
   </script>
 </head>
 <body>
-  <div id="loading">Loading 3D models…</div>
+  <div id="loading">
+    Downloading 3D models&hellip;
+    <div id="loading-bar-track"><div id="loading-bar-fill"></div></div>
+  </div>
   <div id="sound-pulse"></div>
-  <div id="instructions">👆 Tap "START AR", scan a surface, TAP the ring to place. Use Next/Prev to move the astronaut. Get closer for louder sound.</div>
-  <div id="iss-info">Loading live ISS location...</div>
+  <div id="instructions">👆 Tap "START AR", scan a surface, tap the ring to place. Astronaut patrols and can collide with passing planets.</div>
+  <div id="iss-info">Loading live ISS location…</div>
   <a href="./index.html" id="back-link">← Home</a>
+  <div id="gesture-hint">Pinch to resize · drag to rotate · tap a planet to inspect it</div>
+
+  <div id="info-card">
+    <span class="close" id="info-close">✕</span>
+    <h3><span id="info-dot"></span><span id="info-title">—</span></h3>
+    <p id="info-fact">—</p>
+    <div class="live" id="info-live" style="display:none;"></div>
+  </div>
+
   <div id="controls">
     <div id="controls-row">
-      <button id="prev-btn">⏮ Prev</button>
-      <button id="next-btn">🚀 Next</button>
+      <button id="prev-btn" class="pill ghost">⏮ Prev</button>
+      <button id="next-btn" class="pill">🚀 Next</button>
     </div>
-    <button id="speed-btn">Speed: Normal</button>
+    <button id="pose-btn" class="pill ghost">🪐 Pose: Natural Orbit</button>
+    <button id="speed-btn" class="pill ghost">Speed: Normal</button>
   </div>
   <div id="debug">debug: waiting…</div>
+
+  <div id="no-webxr" class="hidden">
+    <h2>WebXR AR is not available here</h2>
+    <p style="color:#9aa3c0; max-width:420px;">Markerless AR needs a WebXR-capable browser with AR support — for
+      example Chrome on an ARCore Android device. Try the marker-based experience instead, or open this page on
+      a supported device.</p>
+    <a class="btn" href="./marker.html">Try Marker AR instead</a>
+  </div>
 
   <script type="module">
     import * as THREE from 'three';
     import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
     import { ARButton } from 'three/addons/webxr/ARButton.js';
+    import { preloadModels, SpaceAudio, GestureController, vibrate } from './common.js';
 
-    if (!location.search.includes('debug')) document.getElementById('debug').style.display = 'none';
-
-    // Haptic feedback helper — safely no-ops on devices/browsers without vibration support (e.g. iOS Safari)
-    function vibrate(pattern) {
-      if (navigator.vibrate) navigator.vibrate(pattern);
-    }
+    const debugEl = document.getElementById('debug');
+    if (!location.search.includes('debug')) debugEl.style.display = 'none';
 
     const soundPulseEl = document.getElementById('sound-pulse');
 
-    let camera, scene, renderer;
-    let reticle, hitTestSource = null, hitTestSourceRequested = false;
-    let placedGroup, earthContainer = null, astronautContainer = null, beaconLight = null;
-    let earthLoaded = false, issLoaded = false, placed = false;
+    // Share a single AudioContext between our procedural SpaceAudio engine and
+    // THREE's AudioListener/PositionalAudio — WebAudio nodes can't be wired
+    // together across two separate AudioContext instances.
+    const sharedAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    THREE.AudioContext.setContext(sharedAudioCtx);
+    const audio = new SpaceAudio(sharedAudioCtx);
 
+    /* ------------------------------------------------------------ */
+    /* WebXR availability check                                        */
+    /* ------------------------------------------------------------ */
+    if (!('xr' in navigator)) {
+      document.getElementById('no-webxr').classList.remove('hidden');
+    } else {
+      navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
+        if (!supported) document.getElementById('no-webxr').classList.remove('hidden');
+      }).catch(() => document.getElementById('no-webxr').classList.remove('hidden'));
+    }
+
+    /* ------------------------------------------------------------ */
+    /* Planet metadata — drives info cards, collision proxies & the    */
+    /* live-data marker. bonePrefix matches the sanitised bone names   */
+    /* baked into solar.glb's skeleton (verified against the shipped   */
+    /* file — see README "How the collision/tap targets work").        */
+    /* ------------------------------------------------------------ */
+    const BODIES = [
+      { key: 'mercury', label: 'Mercury', bonePrefix: 'parenting_joint_mercury', color: '#b1adad',
+        fact: 'A year on Mercury is just 88 Earth days — the shortest in the Solar System.' },
+      { key: 'venus', label: 'Venus', bonePrefix: 'parenting_joint_venus', color: '#e8c39e',
+        fact: 'Venus spins backwards and is the hottest planet, thanks to a runaway greenhouse effect.' },
+      { key: 'earth', label: 'Earth', bonePrefix: 'parenting_joint_earth', color: '#4d8fdb', live: true,
+        fact: '71% of Earth’s surface is water. Watch the live ISS marker orbiting it below.' },
+      { key: 'mars', label: 'Mars', bonePrefix: 'parenting_joint_mars', color: '#c1440e',
+        fact: 'Home to Olympus Mons — at 22km tall, the largest volcano in the Solar System.' },
+      { key: 'jupiter', label: 'Jupiter', bonePrefix: 'parenting_joint_jupiter', color: '#d8ae70',
+        fact: 'Its Great Red Spot is a storm larger than Earth that has raged for centuries.' },
+      { key: 'saturn', label: 'Saturn', bonePrefix: 'parenting_joint_saturn', color: '#e3c07b',
+        fact: 'Saturn is so light it would float in water — if you could find a bathtub big enough.' },
+      { key: 'uranus', label: 'Uranus', bonePrefix: 'parenting_joint_uranus', color: '#8fd3e8',
+        fact: 'Uranus rotates on its side, so its poles take turns facing the Sun for decades.' },
+      { key: 'neptune', label: 'Neptune', bonePrefix: 'parenting_joint_neptune', color: '#4d6de3',
+        fact: 'Neptune has the fastest winds in the Solar System, reaching over 2,000 km/h.' },
+    ];
+
+    /* ------------------------------------------------------------ */
+    /* Three.js scene setup                                            */
+    /* ------------------------------------------------------------ */
+    let camera, scene, renderer, listener;
+    let reticle, hitTestSource = null, hitTestSourceRequested = false;
+    let placedGroup, contentRig, solarGroup = null, astronautGroup = null;
+    let solarLoaded = false, astronautLoaded = false, placed = false;
+    let solarMixer = null, solarClips = [];
+    const bodyProxies = new Map(); // key -> { mesh, bone } — mesh is scene-root, world-space, tap + collision target
+    let issMarker = null;
+    let selectedBody = null;
+
+    const POSES = ['natural_orbit', 'earth_and_moon', 'sun_earth_moon'];
+    const POSE_LABELS = { natural_orbit: '🪐 Pose: Natural Orbit', earth_and_moon: '🌍 Pose: Earth & Moon', sun_earth_moon: '☀️ Pose: Sun + Earth + Moon' };
+    let poseIndex = 0;
+
+    const SOLAR_SCALE = 0.04;
+    const ASTRONAUT_SIZE = 0.022;
+    const COLLISION_RADIUS = 0.045; // metres, in world/placed space, after SOLAR_SCALE & user pinch
     const speeds = [
-      { jump: 1.6, earthSpeed: 0.15, label: 'Slow' },
-      { jump: 1.0, earthSpeed: 0.4, label: 'Normal' },
-      { jump: 0.5, earthSpeed: 0.9, label: 'Fast' }
+      { label: 'Slow', chase: 0.6 },
+      { label: 'Normal', chase: 1.2 },
+      { label: 'Fast', chase: 2.2 },
     ];
     let speedIndex = 1;
-
-    const EARTH_SIZE = 0.08;
-    const ASTRONAUT_SIZE = 0.02;
-    const JUMP_HEIGHT = 0.03;
-
-    const waypoints = [
-      { x: -0.15, y: 0.015, z: 0.03 },
-      { x: -0.09, y: 0.015, z: 0.03 },
-      { x: -0.03, y: 0.015, z: 0.03 },
-      { x:  0.03, y: 0.015, z: 0.03 },
-      { x:  0.09, y: 0.015, z: 0.03 },
-      { x:  0.15, y: 0.015, z: 0.03 }
-    ];
-
-    let currentIndex = 0;
-    let jumpDirection = 1;
-    let jumpState = 'idle';
-    let jumpTimer = 0;
-
-    let squashTimer = 0;
-    const SQUASH_DURATION = 0.25;
+    let targetBodyIndex = 2; // start "visiting" Earth
 
     init();
     animate();
+
+    function init() {
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+
+      const hemi = new THREE.HemisphereLight(0xffffff, 0x2b2b44, 1.1);
+      scene.add(hemi);
+      const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+      dirLight.position.set(1, 1, 1);
+      dirLight.castShadow = true;
+      dirLight.shadow.mapSize.set(1024, 1024);
+      dirLight.shadow.camera.near = 0.01;
+      dirLight.shadow.camera.far = 5;
+      dirLight.shadow.camera.left = -0.5;
+      dirLight.shadow.camera.right = 0.5;
+      dirLight.shadow.camera.top = 0.5;
+      dirLight.shadow.camera.bottom = -0.5;
+      scene.add(dirLight);
+
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.xr.enabled = true;
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      document.body.appendChild(renderer.domElement);
+
+      // Real spatial (HRTF-panned) audio — the astronaut sounds like it's
+      // actually where it appears, unlike the flat proximity drone used in
+      // the marker-based scene.
+      listener = new THREE.AudioListener();
+      camera.add(listener);
+
+      const arButton = ARButton.createButton(renderer, {
+        requiredFeatures: ['hit-test'],
+        optionalFeatures: ['dom-overlay'],
+        domOverlay: { root: document.body },
+      });
+      arButton.style.zIndex = '2000';
+      arButton.addEventListener('click', () => audio.enable());
+      document.body.appendChild(arButton);
+
+      const reticleGeo = new THREE.RingGeometry(0.08, 0.1, 32).rotateX(-Math.PI / 2);
+      reticle = new THREE.Mesh(reticleGeo, new THREE.MeshBasicMaterial({ color: 0xb388ff }));
+      reticle.matrixAutoUpdate = false;
+      reticle.visible = false;
+      scene.add(reticle);
+
+      placedGroup = new THREE.Group();
+      placedGroup.visible = false;
+      scene.add(placedGroup);
+
+      contentRig = new THREE.Group();
+      placedGroup.add(contentRig);
+
+      loadModels();
+
+      renderer.xr.addEventListener('sessionend', onSessionEnd);
+
+      const controller = renderer.xr.getController(0);
+      controller.addEventListener('select', onSelect);
+      scene.add(controller);
+
+      window.addEventListener('resize', onWindowResize);
+      wireUI();
+      updateISSLocation();
+      setInterval(updateISSLocation, 5000);
+    }
+
+    /* ------------------------------------------------------------ */
+    /* Model loading with real byte-level progress. Plain glTF — no Draco    */
+    /* decoder needed, no vendor folder to ship alongside the page.          */
+    /* ------------------------------------------------------------ */
+    function loadModels() {
+      const loader = new GLTFLoader();
+
+      const loadingBar = document.getElementById('loading-bar-fill');
+      const loadingEl = document.getElementById('loading');
+
+      preloadModels(
+        [{ id: 'solar', url: './solar.glb' }, { id: 'astronaut', url: './astronaut.glb' }],
+        (p) => { loadingBar.style.width = Math.round(p * 100) + '%'; }
+      ).then((results) => {
+        const byId = Object.fromEntries(results.map((r) => [r.id, r.url]));
+
+        loader.load(byId.solar, (gltf) => {
+          enableShadows(gltf.scene);
+          solarGroup = gltf.scene;
+          solarGroup.scale.setScalar(SOLAR_SCALE);
+          contentRig.add(solarGroup);
+          solarClips = gltf.animations || [];
+          if (solarClips.length) {
+            solarMixer = new THREE.AnimationMixer(solarGroup);
+            playPose(poseIndex);
+          }
+          buildBodyProxies();
+          solarLoaded = true;
+          maybeReady();
+        }, undefined, (err) => showLoadError('solar.glb', err));
+
+        loader.load(byId.astronaut, (gltf) => {
+          enableShadows(gltf.scene);
+          astronautGroup = normalizeModel(gltf.scene, ASTRONAUT_SIZE);
+          contentRig.add(astronautGroup);
+          setupAstronautAudio();
+          astronautLoaded = true;
+          maybeReady();
+        }, undefined, (err) => showLoadError('astronaut.glb', err));
+      }).catch((err) => showLoadError('models', err));
+
+      function maybeReady() {
+        if (solarLoaded && astronautLoaded) loadingEl.classList.add('hidden');
+      }
+      function showLoadError(what, err) {
+        console.error('Failed to load', what, err);
+        loadingEl.textContent = `Could not load ${what}. Check your connection and reload.`;
+        loadingEl.classList.remove('hidden');
+      }
+    }
+
+    setTimeout(() => {
+      if (!(solarLoaded && astronautLoaded)) {
+        const el = document.getElementById('loading');
+        el.textContent = '⚠️ Still loading — check you opened this via http(s)://, not by double-clicking the file.';
+        el.classList.remove('hidden');
+      }
+    }, 15000);
 
     function normalizeModel(object3D, targetSize) {
       const box = new THREE.Box3().setFromObject(object3D);
@@ -144,319 +361,347 @@
 
     function enableShadows(object3D) {
       object3D.traverse((node) => {
-        if (node.isMesh) {
-          node.castShadow = true;
-          node.receiveShadow = true;
+        if (node.isMesh) { node.castShadow = true; node.receiveShadow = true; }
+      });
+    }
+
+    function findBoneByPrefix(root, prefix) {
+      let found = null;
+      root.traverse((n) => { if (!found && n.name && n.name.startsWith(prefix)) found = n; });
+      return found;
+    }
+
+    /* ------------------------------------------------------------ */
+    /* Body proxies: small raycastable/collidable markers that track    */
+    /* each planet's LIVE animated bone position every frame. Doubles   */
+    /* as (a) the tap-to-select hit target and (b) the collision        */
+    /* target for the astronaut's autonomous flight.                    */
+    /* ------------------------------------------------------------ */
+    function buildBodyProxies() {
+      const geo = new THREE.SphereGeometry(0.018, 12, 12);
+      BODIES.forEach((body) => {
+        const bone = findBoneByPrefix(solarGroup, body.bonePrefix);
+        const mat = new THREE.MeshBasicMaterial({ color: body.color, transparent: true, opacity: 0.001 });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.userData.bodyKey = body.key;
+        scene.add(mesh);
+        bodyProxies.set(body.key, { mesh, bone });
+      });
+
+      // Small glowing dot for the live ISS marker.
+      const issGeo = new THREE.SphereGeometry(0.006, 10, 10);
+      const issMat = new THREE.MeshBasicMaterial({ color: 0x66ccff });
+      issMarker = new THREE.Mesh(issGeo, issMat);
+      const issLight = new THREE.PointLight(0x66ccff, 0.5, 0.08);
+      issMarker.add(issLight);
+      issMarker.visible = false;
+      scene.add(issMarker);
+    }
+
+    const _v = new THREE.Vector3();
+    function updateBodyProxies() {
+      for (const { mesh, bone } of bodyProxies.values()) {
+        if (!bone) continue;
+        bone.getWorldPosition(_v);
+        mesh.position.copy(_v);
+      }
+      if (issLatLon && bodyProxies.has('earth')) {
+        const earth = bodyProxies.get('earth');
+        if (earth.bone) {
+          earth.bone.getWorldPosition(_v);
+          const orbitR = 0.028 * (contentRig.scale.x || 1);
+          const latRad = THREE.MathUtils.degToRad(issLatLon.lat);
+          const lonRad = THREE.MathUtils.degToRad(issLatLon.lon) + performance.now() * 0.00003;
+          issMarker.position.set(
+            _v.x + orbitR * Math.cos(latRad) * Math.cos(lonRad),
+            _v.y + orbitR * Math.sin(latRad),
+            _v.z + orbitR * Math.cos(latRad) * Math.sin(lonRad)
+          );
+          issMarker.visible = true;
         }
-      });
-    }
-
-    function attachAstronautIfReady() {
-      if (earthContainer && astronautContainer && astronautContainer.parent !== earthContainer) {
-        earthContainer.add(astronautContainer);
-        astronautContainer.position.set(waypoints[0].x, waypoints[0].y, waypoints[0].z);
-
-        beaconLight = new THREE.PointLight(0x66ccff, 0.6, 0.4);
-        astronautContainer.add(beaconLight);
-
-        document.getElementById('loading').classList.add('hidden');
       }
     }
 
-    setTimeout(() => {
-      if (!(earthLoaded && issLoaded)) {
-        const el = document.getElementById('loading');
-        el.textContent = '⚠️ Models still not loaded after 10s. Check you opened this via http(s)://, not by double-clicking the file, and that earth.glb/iss.glb are in the same folder.';
-        el.style.color = '#ff6666';
-        el.classList.remove('hidden');
+    function playPose(index) {
+      if (!solarMixer) return;
+      const name = POSES[index];
+      const clip = solarClips.find((c) => c.name === name);
+      if (!clip) return;
+      solarMixer.stopAllAction();
+      solarMixer.clipAction(clip).reset().play();
+      document.getElementById('pose-btn').textContent = POSE_LABELS[name];
+    }
+
+    /* ------------------------------------------------------------ */
+    /* Astronaut: autonomous chase/patrol + real collision detection    */
+    /* ------------------------------------------------------------ */
+    let bounceVelocity = new THREE.Vector3();
+    let lastCollided = new Set();
+
+    function updateAstronaut(dt, t) {
+      if (!astronautGroup) return;
+
+      const bodyKey = BODIES[targetBodyIndex].key;
+      const proxy = bodyProxies.get(bodyKey);
+      const chaseSpeed = speeds[speedIndex].chase;
+
+      if (proxy && proxy.bone) {
+        proxy.bone.getWorldPosition(_v);
+        contentRig.worldToLocal(_v); // -> local target position in contentRig space
+        _v.y += 0.045; // hover just above the body
+        const alpha = Math.min(1, dt * chaseSpeed);
+        astronautGroup.position.lerp(_v, alpha);
       }
-    }, 10000);
 
-    function init() {
-      scene = new THREE.Scene();
-      camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+      // Idle float + gentle tumble, always layered on top of the chase motion.
+      astronautGroup.position.y += Math.sin(t * 1.4) * 0.0025;
+      astronautGroup.rotation.x = Math.sin(t * 0.6) * 0.15;
+      astronautGroup.rotation.z = Math.cos(t * 0.45) * 0.12;
+      astronautGroup.rotation.y += dt * 0.4;
 
-      const light = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2);
-      scene.add(light);
+      // Bounce impulse from a recent collision decays smoothly.
+      if (bounceVelocity.lengthSq() > 0.00001) {
+        astronautGroup.position.addScaledVector(bounceVelocity, dt);
+        bounceVelocity.multiplyScalar(Math.max(0, 1 - dt * 4));
+      }
 
-      const dirLight = new THREE.DirectionalLight(0xffffff, 1);
-      dirLight.position.set(1, 1, 1);
-      dirLight.castShadow = true;
-      dirLight.shadow.mapSize.set(1024, 1024);
-      dirLight.shadow.camera.near = 0.01;
-      dirLight.shadow.camera.far = 5;
-      dirLight.shadow.camera.left = -0.3;
-      dirLight.shadow.camera.right = 0.3;
-      dirLight.shadow.camera.top = 0.3;
-      dirLight.shadow.camera.bottom = -0.3;
-      scene.add(dirLight);
+      checkCollisions();
+    }
 
-      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-      renderer.setPixelRatio(window.devicePixelRatio);
-      renderer.setSize(window.innerWidth, window.innerHeight);
-      renderer.xr.enabled = true;
-      renderer.shadowMap.enabled = true;
-      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-      renderer.outputColorSpace = THREE.SRGBColorSpace;
-      document.body.appendChild(renderer.domElement);
+    function checkCollisions() {
+      if (!astronautGroup) return;
+      astronautGroup.getWorldPosition(_v);
+      const stillColliding = new Set();
+      for (const [key, { mesh }] of bodyProxies) {
+        const dist = _v.distanceTo(mesh.position);
+        const scaledRadius = COLLISION_RADIUS * (contentRig.scale.x || 1);
+        if (dist < scaledRadius) {
+          stillColliding.add(key);
+          if (!lastCollided.has(key)) onCollision(key, mesh.position);
+        }
+      }
+      lastCollided = stillColliding;
+    }
 
-      const arButton = ARButton.createButton(renderer, {
-        requiredFeatures: ['hit-test'],
-        optionalFeatures: ['dom-overlay'],
-        domOverlay: { root: document.body }
-      });
-      arButton.style.zIndex = '2000';
-      arButton.style.opacity = '1';
-      arButton.addEventListener('click', enableSoundOnce);
-      document.body.appendChild(arButton);
+    function onCollision(bodyKey, planetWorldPos) {
+      vibrate([15, 20, 15]);
+      audio.blip(700, 200, 0.18, 0.22);
+      spawnSpark(planetWorldPos);
+      // Physical response: bounce the astronaut away from the planet centre.
+      astronautGroup.getWorldPosition(_v);
+      const away = _v.clone().sub(planetWorldPos).normalize();
+      if (away.lengthSq() < 0.001) away.set(0, 1, 0);
+      bounceVelocity.copy(away).multiplyScalar(0.6);
+    }
 
-      const reticleGeo = new THREE.RingGeometry(0.08, 0.1, 32).rotateX(-Math.PI / 2);
-      reticle = new THREE.Mesh(reticleGeo, new THREE.MeshBasicMaterial({ color: 0x4CC3D9 }));
-      reticle.matrixAutoUpdate = false;
-      reticle.visible = false;
-      scene.add(reticle);
+    function spawnSpark(worldPos) {
+      const geo = new THREE.SphereGeometry(0.008, 8, 8);
+      const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 1 });
+      const spark = new THREE.Mesh(geo, mat);
+      spark.position.copy(worldPos);
+      scene.add(spark);
+      const start = performance.now();
+      (function fade() {
+        const t = (performance.now() - start) / 400;
+        if (t >= 1) { scene.remove(spark); return; }
+        spark.scale.setScalar(1 + t * 6);
+        mat.opacity = 1 - t;
+        requestAnimationFrame(fade);
+      })();
+    }
 
-      placedGroup = new THREE.Group();
-      placedGroup.visible = false;
-      scene.add(placedGroup);
+    /* ------------------------------------------------------------ */
+    /* Positional 3D audio for the astronaut (real HRTF panning)        */
+    /* ------------------------------------------------------------ */
+    let astronautPosAudio = null;
+    function setupAstronautAudio() {
+      try {
+        audio.enable();
+        astronautPosAudio = new THREE.PositionalAudio(listener);
+        astronautPosAudio.setRefDistance(0.12);
+        astronautPosAudio.setMaxDistance(2.5);
+        astronautPosAudio.setRolloffFactor(2.2);
+        if (audio.drone && audio.drone.gain) {
+          audio.drone.gain.disconnect();
+          astronautPosAudio.setNodeSource(audio.drone.gain);
+        }
+        astronautGroup.add(astronautPosAudio);
+      } catch (e) {
+        console.warn('Positional audio unavailable, falling back to ambient-only.', e);
+      }
+    }
 
-      const loader = new GLTFLoader();
-
-      loader.load('./earth.glb', (gltf) => {
-        enableShadows(gltf.scene);
-        earthContainer = normalizeModel(gltf.scene, EARTH_SIZE);
-        placedGroup.add(earthContainer);
-        earthLoaded = true;
-        attachAstronautIfReady();
-      }, undefined, (err) => {
-        console.error('Failed to load earth.glb', err);
-        const el = document.getElementById('loading');
-        el.textContent = 'Could not load earth.glb — check the file exists next to this page.';
-        el.style.color = '#ff6666';
-        el.classList.remove('hidden');
-      });
-
-      loader.load('./iss.glb', (gltf) => {
-        enableShadows(gltf.scene);
-        astronautContainer = normalizeModel(gltf.scene, ASTRONAUT_SIZE);
-        issLoaded = true;
-        attachAstronautIfReady();
-      }, undefined, (err) => {
-        console.error('Failed to load iss.glb', err);
-        const el = document.getElementById('loading');
-        el.textContent = 'Could not load iss.glb — check the file exists next to this page.';
-        el.style.color = '#ff6666';
-        el.classList.remove('hidden');
-      });
-
-      renderer.xr.addEventListener('sessionend', onSessionEnd);
-
-      const controller = renderer.xr.getController(0);
-      controller.addEventListener('select', onSelect);
-      scene.add(controller);
-
-      window.addEventListener('resize', onWindowResize);
-
+    /* ------------------------------------------------------------ */
+    /* UI wiring                                                        */
+    /* ------------------------------------------------------------ */
+    function wireUI() {
       document.getElementById('speed-btn').addEventListener('click', () => {
         speedIndex = (speedIndex + 1) % speeds.length;
         document.getElementById('speed-btn').textContent = 'Speed: ' + speeds[speedIndex].label;
         vibrate(10);
-        enableSoundOnce();
+        audio.enable();
+        audio.blip(400, 500, 0.1, 0.15);
       });
       document.getElementById('next-btn').addEventListener('click', () => {
-        enableSoundOnce();
-        startJump(1);
+        audio.enable();
+        targetBodyIndex = (targetBodyIndex + 1) % BODIES.length;
+        announceTarget();
       });
       document.getElementById('prev-btn').addEventListener('click', () => {
-        enableSoundOnce();
-        startJump(-1);
+        audio.enable();
+        targetBodyIndex = (targetBodyIndex - 1 + BODIES.length) % BODIES.length;
+        announceTarget();
       });
-
-      document.body.addEventListener('click', enableSoundOnce);
-      document.body.addEventListener('touchstart', enableSoundOnce);
-
-      updateISSLocation();
-      setInterval(updateISSLocation, 5000);
+      document.getElementById('pose-btn').addEventListener('click', () => {
+        poseIndex = (poseIndex + 1) % POSES.length;
+        playPose(poseIndex);
+        audio.blip(500, 700, 0.12, 0.2);
+        vibrate(10);
+      });
+      document.getElementById('info-close').addEventListener('click', () => closeInfoCard());
     }
 
-    function startJump(direction) {
-      if (!astronautContainer || jumpState === 'jumping') return;
-      jumpDirection = direction;
-      jumpState = 'jumping';
-      jumpTimer = 0;
-      vibrate(20);
-      playBlip(300, 900, 0.25);
+    function announceTarget() {
+      audio.blip(500, 650, 0.12, 0.16);
+      vibrate(10);
+      document.getElementById('instructions').textContent =
+        `🚀 Heading to ${BODIES[targetBodyIndex].label}…`;
     }
 
-    function updateAstronaut(dt) {
-      if (!astronautContainer) return;
-
-      if (squashTimer > 0) {
-        squashTimer = Math.max(0, squashTimer - dt);
-        const intensity = squashTimer / SQUASH_DURATION;
-        const sY = 1 - 0.3 * intensity;
-        const sXZ = 1 + 0.15 * intensity;
-        astronautContainer.scale.set(sXZ, sY, sXZ);
+    /* ------------------------------------------------------------ */
+    /* Info card (tap-to-select, multi-step interaction)                */
+    /* ------------------------------------------------------------ */
+    function openInfoCard(bodyKey) {
+      const body = BODIES.find((b) => b.key === bodyKey);
+      if (!body) return;
+      selectedBody = bodyKey;
+      const card = document.getElementById('info-card');
+      document.getElementById('info-dot').style.background = body.color;
+      document.getElementById('info-title').textContent = body.label;
+      document.getElementById('info-fact').textContent = body.fact;
+      const liveEl = document.getElementById('info-live');
+      if (body.live && issLatLon) {
+        liveEl.style.display = 'block';
+        liveEl.textContent = `🛰️ Live ISS — lat ${issLatLon.lat.toFixed(1)}°, lon ${issLatLon.lon.toFixed(1)}° · ${issLatLon.alt.toFixed(0)} km · ${issLatLon.vel.toFixed(0)} km/h`;
+      } else {
+        liveEl.style.display = 'none';
       }
+      card.classList.add('open');
+      audio.chime(520);
+    }
+    function closeInfoCard() {
+      selectedBody = null;
+      document.getElementById('info-card').classList.remove('open');
+    }
 
-      if (jumpState !== 'jumping') return;
+    /* ------------------------------------------------------------ */
+    /* Gestures: pinch-to-scale + drag-to-rotate + tap-to-select         */
+    /* ------------------------------------------------------------ */
+    const raycaster = new THREE.Raycaster();
+    const ndc = new THREE.Vector2();
+    let userScale = 1, userRotationY = 0;
 
-      const duration = speeds[speedIndex].jump;
-      jumpTimer += dt;
-      const t = Math.min(1, jumpTimer / duration);
+    new GestureController(renderer.domElement, {
+      getScale: () => userScale,
+      setScale: (s) => { userScale = s; applyContentTransform(); },
+      getRotationY: () => userRotationY,
+      setRotationY: (r) => { userRotationY = r; applyContentTransform(); },
+      scaleRange: [0.4, 2.5],
+      onGestureStart: () => audio.enable(),
+      onTap: (x, y) => handleTap(x, y),
+      onDoubleTap: () => { userScale = 1; userRotationY = 0; applyContentTransform(); audio.chime(520); vibrate(15); },
+    });
 
-      const nextIndex = (currentIndex + jumpDirection + waypoints.length) % waypoints.length;
-      const from = waypoints[currentIndex];
-      const to = waypoints[nextIndex];
+    function applyContentTransform() {
+      contentRig.scale.setScalar(userScale);
+      contentRig.rotation.y = userRotationY;
+    }
 
-      const x = from.x + (to.x - from.x) * t;
-      const z = from.z + (to.z - from.z) * t;
-      const arc = Math.sin(t * Math.PI) * JUMP_HEIGHT;
-      const y = from.y + (to.y - from.y) * t + arc;
-
-      astronautContainer.position.set(x, y, z);
-      astronautContainer.rotation.y = jumpDirection > 0 ? Math.PI / 2 : -Math.PI / 2;
-
-      if (t >= 1) {
-        currentIndex = nextIndex;
-        jumpState = 'idle';
-        squashTimer = SQUASH_DURATION;
-        vibrate([25, 15, 25]);
-        playBlip(500, 150, 0.2);
+    function handleTap(clientX, clientY) {
+      if (!placed) return;
+      const rect = renderer.domElement.getBoundingClientRect();
+      ndc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+      ndc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(ndc, camera);
+      const targets = [...bodyProxies.values()].map((p) => p.mesh);
+      const hits = raycaster.intersectObjects(targets, false);
+      if (hits.length) {
+        const key = hits[0].object.userData.bodyKey;
+        if (selectedBody === key) closeInfoCard();
+        else openInfoCard(key);
+      } else if (selectedBody) {
+        closeInfoCard();
       }
     }
 
+    /* ------------------------------------------------------------ */
+    /* Placement / session lifecycle                                    */
+    /* ------------------------------------------------------------ */
     function onSelect() {
-      enableSoundOnce();
+      audio.enable();
       if (!placed && reticle.visible) {
         placedGroup.position.setFromMatrixPosition(reticle.matrix);
         placedGroup.visible = true;
         placed = true;
         reticle.visible = false;
         vibrate(30);
+        audio.chime(660);
       }
     }
-
     function onSessionEnd() {
       placed = false;
       placedGroup.visible = false;
       reticle.visible = false;
+      closeInfoCard();
     }
-
     function onWindowResize() {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
-    let audioCtx, oscillator, oscillator2, filterNode, gainNode, audioReady = false;
-
-    function enableSoundOnce() {
-      if (audioReady) {
-        if (audioCtx.state === 'suspended') audioCtx.resume();
-        return;
-      }
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      oscillator = audioCtx.createOscillator();
-      oscillator.type = 'sine';
-      oscillator.frequency.value = 130;
-      oscillator2 = audioCtx.createOscillator();
-      oscillator2.type = 'sine';
-      oscillator2.frequency.value = 130 * 1.5;
-      filterNode = audioCtx.createBiquadFilter();
-      filterNode.type = 'lowpass';
-      filterNode.frequency.value = 800;
-      gainNode = audioCtx.createGain();
-      gainNode.gain.value = 0;
-      oscillator.connect(filterNode);
-      oscillator2.connect(filterNode);
-      filterNode.connect(gainNode);
-      gainNode.connect(audioCtx.destination);
-      oscillator.start();
-      oscillator2.start();
-      audioReady = true;
-    }
-
-    function playBlip(freqStart, freqEnd, duration) {
-      if (!audioCtx) return;
-      const t0 = audioCtx.currentTime;
-      const osc = audioCtx.createOscillator();
-      const g = audioCtx.createGain();
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(freqStart, t0);
-      osc.frequency.exponentialRampToValueAtTime(Math.max(freqEnd, 1), t0 + duration);
-      g.gain.setValueAtTime(0.0001, t0);
-      g.gain.exponentialRampToValueAtTime(0.3, t0 + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
-      osc.connect(g);
-      g.connect(audioCtx.destination);
-      osc.start(t0);
-      osc.stop(t0 + duration + 0.05);
-    }
-
-    const camWorldPos = new THREE.Vector3();
-    const groupWorldPos = new THREE.Vector3();
-    let minSeen = Infinity;
-    let maxSeen = -Infinity;
-
-    function updateSound() {
-      if (!audioReady) return;
-      if (placed) {
-        camera.getWorldPosition(camWorldPos);
-        placedGroup.getWorldPosition(groupWorldPos);
-        const distance = camWorldPos.distanceTo(groupWorldPos);
-
-        if (distance < minSeen) minSeen = distance;
-        if (distance > maxSeen) maxSeen = distance;
-        const range = Math.max(maxSeen - minSeen, 0.0001);
-        const closeness = 1 - (distance - minSeen) / range;
-
-        const volume = 0.15 + closeness * 0.35;
-        const filterFreq = 400 + closeness * 1200;
-        const pitch = 120 + closeness * 40;
-
-        gainNode.gain.setTargetAtTime(volume, audioCtx.currentTime, 0.15);
-        filterNode.frequency.setTargetAtTime(filterFreq, audioCtx.currentTime, 0.15);
-        oscillator.frequency.setTargetAtTime(pitch, audioCtx.currentTime, 0.15);
-        oscillator2.frequency.setTargetAtTime(pitch * 1.5, audioCtx.currentTime, 0.15);
-
-        document.getElementById('debug').textContent =
-          `earth:${earthLoaded} iss:${issLoaded} placed:${placed} | planet: ${currentIndex + 1}/${waypoints.length} | jump: ${jumpState} | speed: ${speeds[speedIndex].label} | dist: ${distance.toFixed(2)}m vol: ${volume.toFixed(2)}`;
-      } else {
-        gainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.3);
-        document.getElementById('debug').textContent =
-          `earth:${earthLoaded} iss:${issLoaded} placed:${placed} | planet: ${currentIndex + 1}/${waypoints.length} | jump: ${jumpState} | speed: ${speeds[speedIndex].label}`;
-      }
-    }
-
+    /* ------------------------------------------------------------ */
+    /* Live REST API integration — Option A (Data-Driven)                */
+    /* Polls the open wheretheiss.at API and uses the real lat/lon to    */
+    /* actually move a 3D marker in the scene (see updateBodyProxies).   */
+    /* ------------------------------------------------------------ */
+    let issLatLon = null;
     async function updateISSLocation() {
       try {
         const response = await fetch('https://api.wheretheiss.at/v1/satellites/25544');
         const data = await response.json();
+        issLatLon = { lat: data.latitude, lon: data.longitude, alt: data.altitude, vel: data.velocity };
         document.querySelector('#iss-info').innerHTML =
           `🛰️ ISS Live — Lat ${data.latitude.toFixed(2)}°, Lon ${data.longitude.toFixed(2)}° · ` +
           `Alt ${data.altitude.toFixed(1)} km · ${data.velocity.toFixed(0)} km/h`;
+        if (selectedBody === 'earth') openInfoCard('earth');
       } catch (e) {
-        document.querySelector('#iss-info').textContent = "Could not fetch ISS data";
+        document.querySelector('#iss-info').textContent = 'Could not fetch live ISS data (offline?)';
       }
     }
 
+    /* ------------------------------------------------------------ */
+    /* Render loop                                                       */
+    /* ------------------------------------------------------------ */
     const clock = new THREE.Clock();
+    let elapsed = 0;
     function animate() { renderer.setAnimationLoop(render); }
 
     function render(timestamp, frame) {
-      const delta = clock.getDelta();
-      if (earthContainer) earthContainer.rotation.y += delta * speeds[speedIndex].earthSpeed;
-      updateAstronaut(delta);
+      const delta = Math.min(0.1, clock.getDelta());
+      elapsed += delta;
 
-      if (beaconLight) {
-        beaconLight.intensity = 0.4 + Math.sin(timestamp / 300) * 0.25;
+      if (solarMixer) solarMixer.update(delta);
+      scene.updateMatrixWorld(true);
+      if (placed) {
+        updateBodyProxies();
+        updateAstronaut(delta, elapsed);
       }
 
-      // Visual sound indicator — glow pulses in sync with the beacon (accessibility: works without audio)
-      if (placed && beaconLight) {
-        const pulseNorm = (beaconLight.intensity - 0.15) / (0.65 - 0.15);
-        soundPulseEl.style.opacity = Math.max(0, Math.min(0.6, pulseNorm * 0.6));
+      if (placed) {
+        soundPulseEl.style.opacity = 0.15 + Math.sin(timestamp / 400) * 0.1;
+        debugEl.textContent =
+          `solar:${solarLoaded} astro:${astronautLoaded} placed:${placed} | target:${BODIES[targetBodyIndex].label} | speed:${speeds[speedIndex].label} | scale:${userScale.toFixed(2)}`;
       } else {
         soundPulseEl.style.opacity = 0;
       }
@@ -467,14 +712,9 @@
 
         if (!hitTestSourceRequested) {
           session.requestReferenceSpace('viewer').then((viewerSpace) => {
-            session.requestHitTestSource({ space: viewerSpace }).then((source) => {
-              hitTestSource = source;
-            });
+            session.requestHitTestSource({ space: viewerSpace }).then((source) => { hitTestSource = source; });
           });
-          session.addEventListener('end', () => {
-            hitTestSourceRequested = false;
-            hitTestSource = null;
-          });
+          session.addEventListener('end', () => { hitTestSourceRequested = false; hitTestSource = null; });
           hitTestSourceRequested = true;
         }
 
@@ -489,7 +729,6 @@
         }
       }
 
-      updateSound();
       renderer.render(scene, camera);
     }
   </script>
