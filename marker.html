@@ -1,36 +1,65 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Marker AR - Solar System</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <title>Marker AR — Solar System Explorer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <script src="https://unpkg.com/aframe@1.4.2/dist/aframe.min.js"></script>
   <script src="https://unpkg.com/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
   <style>
-    body { margin: 0; font-family: sans-serif; }
+    /* Kept deliberately minimal — the AR camera view and its sizing are 100%
+       A-Frame + MindAR defaults. No `embedded` attribute, no custom CSS on
+       a-scene/canvas/video: those are the parts that must stay exactly as
+       A-Frame ships them for the live camera feed to fill the screen. */
+    :root{ --accent:#4cc3d9; }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
     #instructions {
-      position: fixed; top: 16px; left: 16px; right: 16px;
-      background: rgba(0,0,0,0.75); color: white; padding: 10px 14px;
-      border-radius: 10px; font-size: 13px; text-align: center; z-index: 999;
+      position: fixed; top: 14px; left: 14px; right: 14px;
+      background: rgba(5,8,18,0.78); color: white; padding: 10px 14px;
+      border-radius: 12px; font-size: 13px; text-align: center; z-index: 999;
+      border: 1px solid rgba(76,195,217,0.35);
+    }
+    #planet-label{
+      position: fixed; top: 64px; left: 50%; transform: translateX(-50%);
+      background: rgba(5,8,18,0.78); color: var(--accent); padding: 6px 16px;
+      border-radius: 999px; font-size: 12px; font-weight: 700; letter-spacing:.03em;
+      z-index: 999; border: 1px solid rgba(76,195,217,0.35); white-space: nowrap;
+      transition: opacity .2s ease;
     }
     #debug {
-      position: fixed; top: 70px; left: 16px; right: 16px;
-      background: rgba(0,0,0,0.6); color: #0f0; padding: 6px 12px;
+      position: fixed; top: 104px; left: 14px; right: 14px;
+      background: rgba(0,0,0,0.6); color: #7CFC7C; padding: 6px 12px;
       border-radius: 8px; font-size: 11px; font-family: monospace; z-index: 999; text-align: center;
     }
     #back-link {
-      position: fixed; bottom: 20px; left: 20px;
-      background: rgba(0,0,0,0.75); color: white; padding: 10px 18px;
+      position: fixed; bottom: 20px; left: 16px;
+      background: rgba(5,8,18,0.78); color: white; padding: 10px 16px;
       border-radius: 20px; font-size: 13px; text-decoration: none; z-index: 999;
+      border: 1px solid rgba(255,255,255,0.15);
+    }
+    #next-flow {
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+      background: rgba(76,195,217,0.16); color: var(--accent); padding: 10px 14px;
+      border-radius: 20px; font-size: 12px; text-decoration: none; z-index: 999;
+      border: 1px solid rgba(76,195,217,0.4); white-space:nowrap;
     }
     #controls {
-      position: fixed; bottom: 20px; right: 20px;
-      display: flex; flex-direction: column; gap: 8px; z-index: 999;
+      position: fixed; bottom: 20px; right: 16px;
+      display: flex; flex-direction: column; align-items: flex-end; gap: 8px; z-index: 999;
     }
     #controls-row { display: flex; gap: 8px; }
-    #next-btn, #prev-btn, #speed-btn {
-      background: #4CC3D9; color: white; padding: 10px 14px;
-      border: none; border-radius: 20px; font-size: 13px; font-weight: bold;
+    button.pill {
+      background: rgba(76,195,217,0.9); color: #04070d; padding: 10px 14px;
+      border: none; border-radius: 20px; font-size: 12px; font-weight: 700;
+      font-family: inherit;
+    }
+    button.pill.ghost{
+      background: rgba(255,255,255,0.1); color: white; border: 1px solid rgba(255,255,255,0.25);
+    }
+    #gesture-hint{
+      position: fixed; left:14px; right:14px; bottom: 82px;
+      text-align:center; color: rgba(255,255,255,0.75); font-size: 11px; z-index: 998;
+      pointer-events:none; text-shadow: 0 1px 3px rgba(0,0,0,0.8);
     }
     #loading {
       position: fixed; top: 0; left: 0; right: 0; bottom: 0;
@@ -40,36 +69,45 @@
     }
     .spinner {
       width: 40px; height: 40px; border-radius: 50%;
-      border: 4px solid rgba(255,255,255,0.2); border-top-color: #4CC3D9;
+      border: 4px solid rgba(255,255,255,0.2); border-top-color: var(--accent);
       animation: spin 0.9s linear infinite; margin-bottom: 14px;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
     #loading-percent { font-size: 20px; font-weight: bold; margin-top: 6px; }
 
-    /* Visual sound indicator — pulses in sync with the beacon sound, for users who can't hear it */
     #sound-pulse {
       position: fixed; inset: 0; pointer-events: none; z-index: 998;
-      background: radial-gradient(circle at 50% 65%, rgba(102,204,255,0.4), transparent 55%);
+      background: radial-gradient(circle at 50% 65%, rgba(102,204,255,0.35), transparent 55%);
       opacity: 0; transition: opacity 0.15s ease-out;
+    }
+    #tap-flash{
+      position:fixed; inset:0; pointer-events:none; z-index:997;
+      background: radial-gradient(circle, rgba(255,255,255,0.25), transparent 60%);
+      opacity:0; mix-blend-mode: screen;
     }
   </style>
 </head>
 <body>
   <div id="loading">
     <div class="spinner"></div>
-    <div id="loading-text">Downloading 3D models…</div>
+    <div id="loading-text">Downloading 3D models&hellip;</div>
     <div id="loading-percent">0%</div>
   </div>
   <div id="sound-pulse"></div>
-  <div id="instructions">📷 Point at the marker · tap "Next/Prev" to move the astronaut</div>
+  <div id="tap-flash"></div>
+  <div id="instructions">📷 Point at your marker to anchor the solar system</div>
+  <div id="planet-label">🚀 Astronaut ready</div>
+  <div id="gesture-hint">Pinch to resize · drag to spin · tap astronaut for a trick · double-tap to reset</div>
   <div id="debug">distance: -- | volume: --</div>
   <a href="./index.html" id="back-link">← Home</a>
+  <a href="./markerless.html" id="next-flow">Step 2: Markerless AR →</a>
   <div id="controls">
     <div id="controls-row">
-      <button id="prev-btn">⏮ Prev</button>
-      <button id="next-btn">🚀 Next</button>
+      <button id="prev-btn" class="pill ghost">⏮ Prev</button>
+      <button id="next-btn" class="pill">🚀 Next</button>
     </div>
-    <button id="speed-btn">Speed: Normal</button>
+    <button id="pose-btn" class="pill ghost">🪐 Pose: Natural Orbit</button>
+    <button id="speed-btn" class="pill ghost">Speed: Normal</button>
   </div>
 
   <a-scene
@@ -80,201 +118,363 @@
     device-orientation-permission-ui="enabled: false"
   >
     <a-assets>
-      <a-asset-item id="earthModel" src="./earth.glb"></a-asset-item>
-      <a-asset-item id="issModel" src="./iss.glb"></a-asset-item>
+      <a-asset-item id="solarModel" src="./solar.glb"></a-asset-item>
+      <a-asset-item id="astronautModel" src="./astronaut.glb"></a-asset-item>
     </a-assets>
 
     <a-camera id="camera" position="0 0 0" look-controls="enabled: false"></a-camera>
 
-    <a-light type="ambient" color="#ffffff" intensity="0.6"></a-light>
+    <a-light type="ambient" color="#ffffff" intensity="0.7"></a-light>
     <a-entity
-      light="type: directional; color: #ffffff; intensity: 0.9; castShadow: true;
-             shadowMapHeight: 2048; shadowMapWidth: 2048;
-             shadowCameraLeft: -0.3; shadowCameraRight: 0.3;
-             shadowCameraTop: 0.3; shadowCameraBottom: -0.3;
+      light="type: directional; color: #ffffff; intensity: 1.0; castShadow: true;
+             shadowMapHeight: 1024; shadowMapWidth: 1024;
+             shadowCameraLeft: -0.4; shadowCameraRight: 0.4;
+             shadowCameraTop: 0.4; shadowCameraBottom: -0.4;
              shadowCameraNear: 0.01; shadowCameraFar: 2;
              shadowBias: -0.001"
       position="1 1 1">
     </a-entity>
 
     <a-entity id="target" mindar-image-target="targetIndex: 0">
-      <a-entity id="earth" gltf-model="#earthModel" position="0 0 0.1" scale="0.3 0.3 0.3" shadow="receive: true"></a-entity>
-
-      <a-entity id="astronaut" gltf-model="#issModel" scale="0.05 0.05 0.05" rotation="0 90 0" shadow="cast: true">
-        <a-entity id="beaconRig" position="0 0.1 0">
-          <a-entity
-            id="beacon"
-            light="type: spot; color: #66ccff; intensity: 2.5; distance: 1.5; angle: 25; penumbra: 0.4; target: #beaconTarget"
-            position="0 0 0">
+      <!-- contentRig: gesture layer. Pinch/drag manipulate THIS entity's scale/rotation,
+           completely independent of MindAR's own tracking transform on #target. -->
+      <a-entity id="contentRig" position="0 0 0.12">
+        <a-entity id="solarRig" gltf-model="#solarModel" scale="0.05 0.05 0.05" shadow="cast: true; receive: true"></a-entity>
+        <a-entity id="astronautRig" gltf-model="#astronautModel" shadow="cast: true; receive: true">
+          <a-entity id="beaconRig" position="0 0.06 0">
+            <a-entity
+              id="beacon"
+              light="type: spot; color: #66ccff; intensity: 2.2; distance: 1.2; angle: 25; penumbra: 0.4; target: #beaconTarget"
+              position="0 0 0">
+            </a-entity>
+            <a-entity id="beaconTarget" position="0 -0.4 0.2"></a-entity>
           </a-entity>
-          <a-entity id="beaconTarget" position="0 -0.6 0.3"></a-entity>
-          <a-cone
-            id="beamCone"
-            radius-bottom="0.06" radius-top="0.002" height="0.5"
-            position="0 -0.25 0.15" rotation="70 0 0"
-            material="color: #66ccff; opacity: 0.25; transparent: true; shader: flat; side: double"
-            shadow="cast: false; receive: false">
-          </a-cone>
         </a-entity>
       </a-entity>
     </a-entity>
   </a-scene>
 
-  <script>
+  <script type="module">
+    import { SpaceAudio, GestureController, vibrate } from './common.js';
+
+    /* ------------------------------------------------------------ */
+    /* DOM refs                                                       */
+    /* ------------------------------------------------------------ */
     const sceneEl = document.querySelector('a-scene');
     const loadingEl = document.querySelector('#loading');
+    const loadingText = document.querySelector('#loading-text');
+    const loadingPct = document.querySelector('#loading-percent');
     const targetEl = document.querySelector('#target');
     const cameraEl = document.querySelector('#camera');
-    const earthEl = document.querySelector('#earth');
-    const astronautEl = document.querySelector('#astronaut');
+    const contentRigEl = document.querySelector('#contentRig');
+    const solarRigEl = document.querySelector('#solarRig');
+    const astronautRigEl = document.querySelector('#astronautRig');
     const beaconRigEl = document.querySelector('#beaconRig');
     const beaconEl = document.querySelector('#beacon');
-    const beamConeEl = document.querySelector('#beamCone');
     const soundPulseEl = document.querySelector('#sound-pulse');
+    const tapFlashEl = document.querySelector('#tap-flash');
+    const planetLabelEl = document.querySelector('#planet-label');
     const speedBtn = document.querySelector('#speed-btn');
+    const poseBtn = document.querySelector('#pose-btn');
     const nextBtn = document.querySelector('#next-btn');
     const prevBtn = document.querySelector('#prev-btn');
     const debugEl = document.querySelector('#debug');
-
     if (!location.search.includes('debug')) debugEl.style.display = 'none';
 
-    // Haptic feedback helper — safely no-ops on devices/browsers without vibration support (e.g. iOS Safari)
-    function vibrate(pattern) {
-      if (navigator.vibrate) navigator.vibrate(pattern);
-    }
+    const audio = new SpaceAudio();
 
-    sceneEl.addEventListener('loaded', () => {
-      document.getElementById('loading-percent').textContent = '100%';
-      document.getElementById('loading-text').textContent = 'Ready!';
-      setTimeout(() => { loadingEl.style.display = 'none'; }, 250);
-    });
-
+    /* ------------------------------------------------------------ */
+    /* Loading UI — same simple approach as the original: A-Frame's    */
+    /* own <a-assets> loads solar.glb + astronaut.glb, we just show a  */
+    /* friendly fake progress bar until the scene fires "loaded".       */
+    /* ------------------------------------------------------------ */
     let fakePct = 0;
     const progressTimer = setInterval(() => {
-      if (fakePct < 90) {
-        fakePct += Math.random() * 6;
-        document.getElementById('loading-percent').textContent = Math.min(90, Math.floor(fakePct)) + '%';
+      if (fakePct < 92) {
+        fakePct += Math.random() * 7;
+        loadingPct.textContent = Math.min(92, Math.floor(fakePct)) + '%';
       }
-    }, 250);
-    sceneEl.addEventListener('loaded', () => clearInterval(progressTimer));
-
+    }, 200);
+    sceneEl.addEventListener('loaded', () => {
+      clearInterval(progressTimer);
+      loadingPct.textContent = '100%';
+      loadingText.textContent = 'Ready!';
+      setTimeout(() => { loadingEl.style.display = 'none'; }, 250);
+    });
     setTimeout(() => {
       if (loadingEl.style.display !== 'none') {
-        document.getElementById('loading-text').textContent =
-          '⚠️ Still loading — this usually means the .glb model files are large. Check your connection, or compress the models (see gltf.report).';
+        loadingText.textContent = '⚠️ Still preparing the scene — this can take a little longer on slow connections.';
       }
-    }, 15000);
+    }, 20000);
 
+    /* ------------------------------------------------------------ */
+    /* Solar system: real baked animation clips, cycle-able pose       */
+    /* ------------------------------------------------------------ */
+    const POSES = ['natural_orbit', 'earth_and_moon', 'sun_earth_moon'];
+    const POSE_LABELS = { natural_orbit: '🪐 Pose: Natural Orbit', earth_and_moon: '🌍 Pose: Earth & Moon', sun_earth_moon: '☀️ Pose: Sun + Earth + Moon' };
+    let poseIndex = 0;
+    let solarMixer = null;
+    let solarClips = [];
+    let solarAction = null;
+
+    function playPose(index) {
+      if (!solarMixer) return;
+      const name = POSES[index];
+      const clip = solarClips.find((c) => c.name === name);
+      if (!clip) return;
+      if (solarAction) solarAction.stop();
+      solarAction = solarMixer.clipAction(clip);
+      solarAction.reset().play();
+      poseBtn.textContent = POSE_LABELS[name];
+    }
+
+    solarRigEl.addEventListener('model-loaded', (e) => {
+      const model = e.detail.model;
+      solarClips = model.animations || [];
+      if (solarClips.length) {
+        solarMixer = new THREE.AnimationMixer(model);
+        playPose(poseIndex);
+      }
+    });
+
+    poseBtn.addEventListener('click', () => {
+      poseIndex = (poseIndex + 1) % POSES.length;
+      playPose(poseIndex);
+      audio.blip(500, 700, 0.12, 0.2);
+      vibrate(10);
+    });
+
+    /* ------------------------------------------------------------ */
+    /* Astronaut: idle float + tumble, waypoint hops, spin trick        */
+    /* ------------------------------------------------------------ */
     const waypoints = [
-      { x: -0.55, y: 0.05, z: 0.12 },
-      { x: -0.33, y: 0.05, z: 0.12 },
-      { x: -0.11, y: 0.05, z: 0.12 },
-      { x:  0.11, y: 0.05, z: 0.12 },
-      { x:  0.33, y: 0.05, z: 0.12 },
-      { x:  0.55, y: 0.05, z: 0.12 }
+      { x: -0.4, y: 0.12, z: 0.05, name: 'Mercury flyby' },
+      { x: -0.24, y: 0.14, z: 0.05, name: 'Venus flyby' },
+      { x: -0.08, y: 0.11, z: 0.05, name: 'Earth flyby' },
+      { x: 0.08, y: 0.15, z: 0.05, name: 'Mars flyby' },
+      { x: 0.24, y: 0.12, z: 0.05, name: 'Jupiter flyby' },
+      { x: 0.4, y: 0.14, z: 0.05, name: 'Saturn flyby' },
     ];
 
+    const BASE_SCALE = 0.022;
     let currentIndex = 0;
     let jumpDirection = 1;
-    let jumpState = 'idle';
+    let jumpState = 'idle'; // idle | jumping | tricking
     let jumpTimer = 0;
-    const JUMP_HEIGHT = 0.15;
-    const BASE_SCALE = 0.05;
-
+    let trickTimer = 0;
+    const TRICK_DURATION = 0.6;
+    const JUMP_HEIGHT = 0.09;
     let squashTimer = 0;
     const SQUASH_DURATION = 0.25;
+    let astronautObj = null; // raw THREE.Object3D once model loads, for raycasting
 
-    astronautEl.setAttribute('position', `${waypoints[0].x} ${waypoints[0].y} ${waypoints[0].z}`);
+    astronautRigEl.setAttribute('position', `${waypoints[0].x} ${waypoints[0].y} ${waypoints[0].z}`);
+    astronautRigEl.setAttribute('scale', `${BASE_SCALE} ${BASE_SCALE} ${BASE_SCALE}`);
+    astronautRigEl.setAttribute('rotation', '0 90 0');
+    planetLabelEl.textContent = '🚀 ' + waypoints[0].name;
+
+    astronautRigEl.addEventListener('model-loaded', (e) => {
+      astronautObj = e.detail.model;
+    });
 
     function startJump(direction) {
-      if (jumpState === 'jumping') return;
+      if (jumpState !== 'idle') return;
       jumpDirection = direction;
       jumpState = 'jumping';
       jumpTimer = 0;
       vibrate(20);
-      playBlip(300, 900, 0.25);
+      audio.whoosh(0.28, true);
+      audio.blip(300, 900, 0.2, 0.18);
     }
 
-    function updateAstronaut(dt) {
+    function startTrick() {
+      if (jumpState !== 'idle') return;
+      jumpState = 'tricking';
+      trickTimer = 0;
+      vibrate([10, 30, 10]);
+      audio.chime(820);
+    }
+
+    function updateAstronaut(dt, t) {
+      // Continuous idle float + tumble — always applied as a base offset so the
+      // astronaut never looks perfectly static, even between hops.
+      const floatY = Math.sin(t * 1.6) * 0.012;
+      const tumbleX = Math.sin(t * 0.7) * 6;
+      const tumbleZ = Math.cos(t * 0.5) * 5;
+
       if (squashTimer > 0) {
         squashTimer = Math.max(0, squashTimer - dt);
         const intensity = squashTimer / SQUASH_DURATION;
         const scaleY = BASE_SCALE * (1 - 0.3 * intensity);
         const scaleXZ = BASE_SCALE * (1 + 0.15 * intensity);
-        astronautEl.setAttribute('scale', `${scaleXZ} ${scaleY} ${scaleXZ}`);
+        astronautRigEl.setAttribute('scale', `${scaleXZ} ${scaleY} ${scaleXZ}`);
       }
 
-      if (jumpState !== 'jumping') return;
+      if (jumpState === 'tricking') {
+        trickTimer += dt;
+        const t2 = Math.min(1, trickTimer / TRICK_DURATION);
+        const wp = waypoints[currentIndex];
+        astronautRigEl.setAttribute('position', `${wp.x} ${wp.y + floatY + Math.sin(t2 * Math.PI) * 0.05} ${wp.z}`);
+        astronautRigEl.setAttribute('rotation', `${tumbleX} ${90 + 360 * t2} ${tumbleZ}`);
+        if (t2 >= 1) {
+          jumpState = 'idle';
+          squashTimer = SQUASH_DURATION * 0.6;
+        }
+        return;
+      }
+
+      if (jumpState !== 'jumping') {
+        const wp = waypoints[currentIndex];
+        astronautRigEl.setAttribute('position', `${wp.x} ${wp.y + floatY} ${wp.z}`);
+        astronautRigEl.setAttribute('rotation', `${tumbleX} 90 ${tumbleZ}`);
+        return;
+      }
 
       const duration = speeds[speedIndex].jump;
       jumpTimer += dt;
-      const t = Math.min(1, jumpTimer / duration);
-
+      const t3 = Math.min(1, jumpTimer / duration);
       const nextIndex = (currentIndex + jumpDirection + waypoints.length) % waypoints.length;
       const from = waypoints[currentIndex];
       const to = waypoints[nextIndex];
 
-      const x = from.x + (to.x - from.x) * t;
-      const z = from.z + (to.z - from.z) * t;
-      const arc = Math.sin(t * Math.PI) * JUMP_HEIGHT;
-      const y = from.y + (to.y - from.y) * t + arc;
-
-      astronautEl.setAttribute('position', `${x} ${y} ${z}`);
-
+      const x = from.x + (to.x - from.x) * t3;
+      const z = from.z + (to.z - from.z) * t3;
+      const arc = Math.sin(t3 * Math.PI) * JUMP_HEIGHT;
+      const y = from.y + (to.y - from.y) * t3 + arc + floatY * 0.4;
+      astronautRigEl.setAttribute('position', `${x} ${y} ${z}`);
       const facingDeg = jumpDirection > 0 ? 90 : -90;
-      astronautEl.setAttribute('rotation', `0 ${90 + facingDeg} 0`);
+      astronautRigEl.setAttribute('rotation', `${tumbleX * 0.3} ${90 + facingDeg} ${tumbleZ * 0.3}`);
 
-      if (t >= 1) {
+      if (t3 >= 1) {
         currentIndex = nextIndex;
         jumpState = 'idle';
         squashTimer = SQUASH_DURATION;
         vibrate([25, 15, 25]);
-        playBlip(500, 150, 0.2);
+        audio.blip(500, 150, 0.2, 0.18);
+        audio.whoosh(0.2, false);
+        planetLabelEl.textContent = '🚀 ' + waypoints[currentIndex].name;
+        planetLabelEl.style.opacity = 1;
       }
     }
 
-    nextBtn.addEventListener('click', () => {
-      ensureAudio();
-      startJump(1);
-    });
-    prevBtn.addEventListener('click', () => {
-      ensureAudio();
-      startJump(-1);
-    });
+    nextBtn.addEventListener('click', () => { audio.enable(); startJump(1); });
+    prevBtn.addEventListener('click', () => { audio.enable(); startJump(-1); });
 
     const speeds = [
-      { earthSpeed: 15, jump: 1.6, label: 'Slow' },
-      { earthSpeed: 40, jump: 1.0, label: 'Normal' },
-      { earthSpeed: 90, jump: 0.5, label: 'Fast' }
+      { jump: 1.6, label: 'Slow' },
+      { jump: 1.0, label: 'Normal' },
+      { jump: 0.55, label: 'Fast' },
     ];
     let speedIndex = 1;
-    let earthAngle = 0;
+    speedBtn.addEventListener('click', () => {
+      speedIndex = (speedIndex + 1) % speeds.length;
+      speedBtn.textContent = 'Speed: ' + speeds[speedIndex].label;
+      vibrate(10);
+      audio.enable();
+      audio.blip(400, 500, 0.1, 0.15);
+    });
+
+    /* ------------------------------------------------------------ */
+    /* Gesture control: pinch-to-scale + drag-to-rotate the whole rig  */
+    /* ------------------------------------------------------------ */
+    function whenCanvasReady(cb) {
+      if (sceneEl.canvas) return cb(sceneEl.canvas);
+      sceneEl.addEventListener('render-target-loaded', () => cb(sceneEl.canvas));
+    }
+
+    let userScale = 1;
+    let userRotationY = 0;
+    const raycaster = new THREE.Raycaster();
+    const ndc = new THREE.Vector2();
+
+    whenCanvasReady((canvas) => {
+      new GestureController(canvas, {
+        getScale: () => userScale,
+        setScale: (s) => { userScale = s; applyContentTransform(); },
+        getRotationY: () => userRotationY,
+        setRotationY: (r) => { userRotationY = r; applyContentTransform(); },
+        scaleRange: [0.4, 2.5],
+        onGestureStart: () => audio.enable(),
+        onTap: (x, y) => {
+          audio.enable();
+          flashTap(x, y);
+          if (hitTestAstronaut(x, y, canvas)) {
+            startTrick();
+          } else {
+            audio.blip(600, 500, 0.08, 0.12);
+          }
+        },
+        onDoubleTap: () => {
+          animateReset();
+          audio.chime(520);
+          vibrate(15);
+        },
+      });
+    });
+
+    function applyContentTransform() {
+      contentRigEl.setAttribute('scale', `${userScale} ${userScale} ${userScale}`);
+      contentRigEl.setAttribute('rotation', `0 ${userRotationY * 180 / Math.PI} 0`);
+    }
+
+    function animateReset() {
+      const startScale = userScale, startRot = userRotationY;
+      const start = performance.now();
+      const duration = 350;
+      function step(now) {
+        const t = Math.min(1, (now - start) / duration);
+        const ease = 1 - Math.pow(1 - t, 3);
+        userScale = startScale + (1 - startScale) * ease;
+        userRotationY = startRot + (0 - startRot) * ease;
+        applyContentTransform();
+        if (t < 1) requestAnimationFrame(step);
+      }
+      requestAnimationFrame(step);
+    }
+
+    function hitTestAstronaut(clientX, clientY, canvas) {
+      if (!astronautObj) return false;
+      const rect = canvas.getBoundingClientRect();
+      ndc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+      ndc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+      const camera3 = cameraEl.getObject3D('camera');
+      if (!camera3) return false;
+      raycaster.setFromCamera(ndc, camera3);
+      const hits = raycaster.intersectObject(astronautObj, true);
+      return hits.length > 0;
+    }
+
+    function flashTap(x, y) {
+      tapFlashEl.style.background = `radial-gradient(circle at ${x}px ${y}px, rgba(255,255,255,0.35), transparent 12%)`;
+      tapFlashEl.style.opacity = 1;
+      setTimeout(() => { tapFlashEl.style.opacity = 0; }, 180);
+    }
+
+    /* ------------------------------------------------------------ */
+    /* Main loop                                                       */
+    /* ------------------------------------------------------------ */
     let lastTime = performance.now();
     let markerVisible = false;
     let beaconSweepAngle = 0;
+    let elapsed = 0;
 
     function tick(now) {
-      const dt = (now - lastTime) / 1000;
+      const dt = Math.min(0.1, (now - lastTime) / 1000);
       lastTime = now;
+      elapsed += dt;
 
       if (markerVisible) {
-        earthAngle = (earthAngle + speeds[speedIndex].earthSpeed * dt) % 360;
-        earthEl.setAttribute('rotation', `0 ${earthAngle} 0`);
-        updateAstronaut(dt);
+        if (solarMixer) solarMixer.update(dt);
+        updateAstronaut(dt, elapsed);
 
-        const pulse = 1.8 + Math.sin(now / 300) * 1.2;
+        const pulse = 1.6 + Math.sin(now / 300) * 1.0;
         beaconEl.setAttribute('light', 'intensity', pulse);
-
         beaconSweepAngle = (beaconSweepAngle + 25 * dt) % 360;
         const sweepOffset = Math.sin(THREE.MathUtils.degToRad(beaconSweepAngle)) * 20;
         beaconRigEl.setAttribute('rotation', `0 ${sweepOffset} 0`);
 
-        const beamOpacity = 0.15 + (pulse - 0.6) * 0.08;
-        beamConeEl.setAttribute('material', 'opacity', Math.max(0.1, Math.min(0.4, beamOpacity)));
-
-        // Visual sound indicator — glow pulses in sync with the beacon (accessibility: works without audio)
-        const pulseNorm = (pulse - 0.6) / (3.0 - 0.6);
-        soundPulseEl.style.opacity = Math.max(0, Math.min(0.6, pulseNorm * 0.6));
+        const pulseNorm = (pulse - 0.6) / (2.6 - 0.6);
+        soundPulseEl.style.opacity = Math.max(0, Math.min(0.55, pulseNorm * 0.55));
       } else {
         soundPulseEl.style.opacity = 0;
       }
@@ -282,98 +482,43 @@
     }
     requestAnimationFrame(tick);
 
-    speedBtn.addEventListener('click', () => {
-      speedIndex = (speedIndex + 1) % speeds.length;
-      speedBtn.textContent = 'Speed: ' + speeds[speedIndex].label;
-      vibrate(10);
-      ensureAudio();
-    });
-
-    let audioCtx, oscillator, oscillator2, filterNode, gainNode, audioStarted = false;
-
-    function ensureAudio() {
-      if (!audioStarted) {
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        oscillator = audioCtx.createOscillator();
-        oscillator.type = 'sine';
-        oscillator.frequency.value = 130;
-        oscillator2 = audioCtx.createOscillator();
-        oscillator2.type = 'sine';
-        oscillator2.frequency.value = 130 * 1.5;
-        filterNode = audioCtx.createBiquadFilter();
-        filterNode.type = 'lowpass';
-        filterNode.frequency.value = 800;
-        gainNode = audioCtx.createGain();
-        gainNode.gain.value = 0;
-        oscillator.connect(filterNode);
-        oscillator2.connect(filterNode);
-        filterNode.connect(gainNode);
-        gainNode.connect(audioCtx.destination);
-        oscillator.start();
-        oscillator2.start();
-        audioStarted = true;
-      }
-      if (audioCtx.state === 'suspended') audioCtx.resume();
-    }
-
-    function playBlip(freqStart, freqEnd, duration) {
-      if (!audioCtx) return;
-      const t0 = audioCtx.currentTime;
-      const osc = audioCtx.createOscillator();
-      const g = audioCtx.createGain();
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(freqStart, t0);
-      osc.frequency.exponentialRampToValueAtTime(Math.max(freqEnd, 1), t0 + duration);
-      g.gain.setValueAtTime(0.0001, t0);
-      g.gain.exponentialRampToValueAtTime(0.3, t0 + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
-      osc.connect(g);
-      g.connect(audioCtx.destination);
-      osc.start(t0);
-      osc.stop(t0 + duration + 0.05);
-    }
-
-    document.body.addEventListener('touchstart', ensureAudio);
-    document.body.addEventListener('click', ensureAudio);
-
     targetEl.addEventListener('targetFound', () => {
-      ensureAudio();
+      audio.enable();
       markerVisible = true;
       vibrate(15);
+      audio.chime(660);
     });
     targetEl.addEventListener('targetLost', () => {
       markerVisible = false;
-      if (gainNode) gainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.3);
+      audio.muteProximity();
     });
 
+    /* Distance-based proximity hum (camera → marker). */
     const camWorldPos = new THREE.Vector3();
     const targetWorldPos = new THREE.Vector3();
-    let minSeen = Infinity;
-    let maxSeen = -Infinity;
+    let minSeen = Infinity, maxSeen = -Infinity;
 
     function updateSoundByDistance() {
-      if (markerVisible && gainNode && cameraEl.object3D && targetEl.object3D) {
-        cameraEl.object3D.getWorldPosition(camWorldPos);
+      const camera3 = cameraEl.getObject3D('camera');
+      if (markerVisible && audio.ready && camera3 && targetEl.object3D) {
+        camera3.getWorldPosition(camWorldPos);
         targetEl.object3D.getWorldPosition(targetWorldPos);
         const distance = camWorldPos.distanceTo(targetWorldPos);
         if (distance < minSeen) minSeen = distance;
         if (distance > maxSeen) maxSeen = distance;
         const range = Math.max(maxSeen - minSeen, 0.0001);
         const closeness = 1 - (distance - minSeen) / range;
-        const volume = 0.15 + closeness * 0.35;
-        const filterFreq = 400 + closeness * 1200;
-        const pitch = 120 + closeness * 40;
-        gainNode.gain.setTargetAtTime(volume, audioCtx.currentTime, 0.3);
-        filterNode.frequency.setTargetAtTime(filterFreq, audioCtx.currentTime, 0.3);
-        oscillator.frequency.setTargetAtTime(pitch, audioCtx.currentTime, 0.3);
-        oscillator2.frequency.setTargetAtTime(pitch * 1.5, audioCtx.currentTime, 0.3);
-        debugEl.textContent = `dist: ${distance.toFixed(0)} | vol: ${volume.toFixed(2)} | planet: ${currentIndex + 1}/${waypoints.length}`;
+        audio.setProximity(closeness);
+        debugEl.textContent = `dist: ${distance.toFixed(2)} | pose: ${POSES[poseIndex]} | stop: ${currentIndex + 1}/${waypoints.length}`;
       } else {
-        debugEl.textContent = `marker not visible | planet: ${currentIndex + 1}/${waypoints.length}`;
+        debugEl.textContent = `marker not visible`;
       }
       requestAnimationFrame(updateSoundByDistance);
     }
     updateSoundByDistance();
+
+    document.body.addEventListener('touchstart', () => audio.enable(), { passive: true });
+    document.body.addEventListener('click', () => audio.enable());
   </script>
 </body>
 </html>
