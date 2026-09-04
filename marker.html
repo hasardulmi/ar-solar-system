@@ -45,6 +45,13 @@
     }
     @keyframes spin { to { transform: rotate(360deg); } }
     #loading-percent { font-size: 20px; font-weight: bold; margin-top: 6px; }
+
+    /* Visual sound indicator — pulses in sync with the beacon sound, for users who can't hear it */
+    #sound-pulse {
+      position: fixed; inset: 0; pointer-events: none; z-index: 998;
+      background: radial-gradient(circle at 50% 65%, rgba(102,204,255,0.4), transparent 55%);
+      opacity: 0; transition: opacity 0.15s ease-out;
+    }
   </style>
 </head>
 <body>
@@ -53,6 +60,7 @@
     <div id="loading-text">Downloading 3D models…</div>
     <div id="loading-percent">0%</div>
   </div>
+  <div id="sound-pulse"></div>
   <div id="instructions">📷 Point at the marker · tap "Next/Prev" to move the astronaut</div>
   <div id="debug">distance: -- | volume: --</div>
   <a href="./index.html" id="back-link">← Home</a>
@@ -93,8 +101,6 @@
       <a-entity id="earth" gltf-model="#earthModel" position="0 0 0.1" scale="0.3 0.3 0.3" shadow="receive: true"></a-entity>
 
       <a-entity id="astronaut" gltf-model="#issModel" scale="0.05 0.05 0.05" rotation="0 90 0" shadow="cast: true">
-
-        <!-- Beacon: spotlight pointing down at Earth's surface, sweeping like a lighthouse -->
         <a-entity id="beaconRig" position="0 0.1 0">
           <a-entity
             id="beacon"
@@ -102,8 +108,6 @@
             position="0 0 0">
           </a-entity>
           <a-entity id="beaconTarget" position="0 -0.6 0.3"></a-entity>
-
-          <!-- Visible beam cone (glowing, additive-style transparency) -->
           <a-cone
             id="beamCone"
             radius-bottom="0.06" radius-top="0.002" height="0.5"
@@ -112,7 +116,6 @@
             shadow="cast: false; receive: false">
           </a-cone>
         </a-entity>
-
       </a-entity>
     </a-entity>
   </a-scene>
@@ -127,12 +130,18 @@
     const beaconRigEl = document.querySelector('#beaconRig');
     const beaconEl = document.querySelector('#beacon');
     const beamConeEl = document.querySelector('#beamCone');
+    const soundPulseEl = document.querySelector('#sound-pulse');
     const speedBtn = document.querySelector('#speed-btn');
     const nextBtn = document.querySelector('#next-btn');
     const prevBtn = document.querySelector('#prev-btn');
     const debugEl = document.querySelector('#debug');
 
     if (!location.search.includes('debug')) debugEl.style.display = 'none';
+
+    // Haptic feedback helper — safely no-ops on devices/browsers without vibration support (e.g. iOS Safari)
+    function vibrate(pattern) {
+      if (navigator.vibrate) navigator.vibrate(pattern);
+    }
 
     sceneEl.addEventListener('loaded', () => {
       document.getElementById('loading-percent').textContent = '100%';
@@ -182,6 +191,7 @@
       jumpDirection = direction;
       jumpState = 'jumping';
       jumpTimer = 0;
+      vibrate(20);
       playBlip(300, 900, 0.25);
     }
 
@@ -218,6 +228,7 @@
         currentIndex = nextIndex;
         jumpState = 'idle';
         squashTimer = SQUASH_DURATION;
+        vibrate([25, 15, 25]);
         playBlip(500, 150, 0.2);
       }
     }
@@ -251,18 +262,21 @@
         earthEl.setAttribute('rotation', `0 ${earthAngle} 0`);
         updateAstronaut(dt);
 
-        // Pulse the spotlight's brightness
         const pulse = 1.8 + Math.sin(now / 300) * 1.2;
         beaconEl.setAttribute('light', 'intensity', pulse);
 
-        // Slowly sweep the beacon rig like a lighthouse
         beaconSweepAngle = (beaconSweepAngle + 25 * dt) % 360;
         const sweepOffset = Math.sin(THREE.MathUtils.degToRad(beaconSweepAngle)) * 20;
         beaconRigEl.setAttribute('rotation', `0 ${sweepOffset} 0`);
 
-        // Fade the visible beam in sync with the pulse
         const beamOpacity = 0.15 + (pulse - 0.6) * 0.08;
         beamConeEl.setAttribute('material', 'opacity', Math.max(0.1, Math.min(0.4, beamOpacity)));
+
+        // Visual sound indicator — glow pulses in sync with the beacon (accessibility: works without audio)
+        const pulseNorm = (pulse - 0.6) / (3.0 - 0.6);
+        soundPulseEl.style.opacity = Math.max(0, Math.min(0.6, pulseNorm * 0.6));
+      } else {
+        soundPulseEl.style.opacity = 0;
       }
       requestAnimationFrame(tick);
     }
@@ -271,6 +285,7 @@
     speedBtn.addEventListener('click', () => {
       speedIndex = (speedIndex + 1) % speeds.length;
       speedBtn.textContent = 'Speed: ' + speeds[speedIndex].label;
+      vibrate(10);
       ensureAudio();
     });
 
@@ -324,6 +339,7 @@
     targetEl.addEventListener('targetFound', () => {
       ensureAudio();
       markerVisible = true;
+      vibrate(15);
     });
     targetEl.addEventListener('targetLost', () => {
       markerVisible = false;
