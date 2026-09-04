@@ -27,9 +27,7 @@
       position: fixed; bottom: 20px; right: 20px;
       display: flex; flex-direction: column; gap: 8px; z-index: 999;
     }
-    #controls-row {
-      display: flex; gap: 8px;
-    }
+    #controls-row { display: flex; gap: 8px; }
     #next-btn, #prev-btn, #speed-btn {
       background: #4CC3D9; color: white; padding: 10px 14px;
       border: none; border-radius: 20px; font-size: 13px; font-weight: bold;
@@ -37,13 +35,24 @@
     #loading {
       position: fixed; top: 0; left: 0; right: 0; bottom: 0;
       background: black; color: white; display: flex;
-      align-items: center; justify-content: center;
-      font-size: 18px; z-index: 1000;
+      flex-direction: column; align-items: center; justify-content: center;
+      font-size: 16px; z-index: 1000; text-align: center; padding: 0 30px;
     }
+    .spinner {
+      width: 40px; height: 40px; border-radius: 50%;
+      border: 4px solid rgba(255,255,255,0.2); border-top-color: #4CC3D9;
+      animation: spin 0.9s linear infinite; margin-bottom: 14px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #loading-percent { font-size: 20px; font-weight: bold; margin-top: 6px; }
   </style>
 </head>
 <body>
-  <div id="loading">Loading AR experience...</div>
+  <div id="loading">
+    <div class="spinner"></div>
+    <div id="loading-text">Downloading 3D models…</div>
+    <div id="loading-percent">0%</div>
+  </div>
   <div id="instructions">📷 Point at the marker · tap "Next/Prev" to move the astronaut</div>
   <div id="debug">distance: -- | volume: --</div>
   <a href="./index.html" id="back-link">← Home</a>
@@ -69,20 +78,41 @@
 
     <a-camera id="camera" position="0 0 0" look-controls="enabled: false"></a-camera>
 
-    <a-light type="ambient" color="#ffffff" intensity="0.7"></a-light>
+    <a-light type="ambient" color="#ffffff" intensity="0.6"></a-light>
     <a-entity
-      light="type: directional; color: #ffffff; intensity: 0.8; castShadow: true;
-             shadowMapHeight: 1024; shadowMapWidth: 1024;
-             shadowCameraLeft: -0.6; shadowCameraRight: 0.6;
-             shadowCameraTop: 0.6; shadowCameraBottom: -0.6;
-             shadowCameraNear: 0.01; shadowCameraFar: 5"
+      light="type: directional; color: #ffffff; intensity: 0.9; castShadow: true;
+             shadowMapHeight: 2048; shadowMapWidth: 2048;
+             shadowCameraLeft: -0.3; shadowCameraRight: 0.3;
+             shadowCameraTop: 0.3; shadowCameraBottom: -0.3;
+             shadowCameraNear: 0.01; shadowCameraFar: 2;
+             shadowBias: -0.001"
       position="1 1 1">
     </a-entity>
 
     <a-entity id="target" mindar-image-target="targetIndex: 0">
       <a-entity id="earth" gltf-model="#earthModel" position="0 0 0.1" scale="0.3 0.3 0.3" shadow="receive: true"></a-entity>
+
       <a-entity id="astronaut" gltf-model="#issModel" scale="0.05 0.05 0.05" rotation="0 90 0" shadow="cast: true">
-        <a-entity id="beacon" light="type: point; color: #66ccff; intensity: 0.6; distance: 1.2" position="0 0.1 0"></a-entity>
+
+        <!-- Beacon: spotlight pointing down at Earth's surface, sweeping like a lighthouse -->
+        <a-entity id="beaconRig" position="0 0.1 0">
+          <a-entity
+            id="beacon"
+            light="type: spot; color: #66ccff; intensity: 2.5; distance: 1.5; angle: 25; penumbra: 0.4; target: #beaconTarget"
+            position="0 0 0">
+          </a-entity>
+          <a-entity id="beaconTarget" position="0 -0.6 0.3"></a-entity>
+
+          <!-- Visible beam cone (glowing, additive-style transparency) -->
+          <a-cone
+            id="beamCone"
+            radius-bottom="0.06" radius-top="0.002" height="0.5"
+            position="0 -0.25 0.15" rotation="70 0 0"
+            material="color: #66ccff; opacity: 0.25; transparent: true; shader: flat; side: double"
+            shadow="cast: false; receive: false">
+          </a-cone>
+        </a-entity>
+
       </a-entity>
     </a-entity>
   </a-scene>
@@ -94,20 +124,38 @@
     const cameraEl = document.querySelector('#camera');
     const earthEl = document.querySelector('#earth');
     const astronautEl = document.querySelector('#astronaut');
+    const beaconRigEl = document.querySelector('#beaconRig');
     const beaconEl = document.querySelector('#beacon');
+    const beamConeEl = document.querySelector('#beamCone');
     const speedBtn = document.querySelector('#speed-btn');
     const nextBtn = document.querySelector('#next-btn');
     const prevBtn = document.querySelector('#prev-btn');
     const debugEl = document.querySelector('#debug');
 
-    // Hide the debug overlay by default — add ?debug to the URL to see it
     if (!location.search.includes('debug')) debugEl.style.display = 'none';
 
-    sceneEl.addEventListener('renderstart', () => {
-      loadingEl.style.display = 'none';
+    sceneEl.addEventListener('loaded', () => {
+      document.getElementById('loading-percent').textContent = '100%';
+      document.getElementById('loading-text').textContent = 'Ready!';
+      setTimeout(() => { loadingEl.style.display = 'none'; }, 250);
     });
 
-    // --- Planet waypoints (X positions along the model) ---
+    let fakePct = 0;
+    const progressTimer = setInterval(() => {
+      if (fakePct < 90) {
+        fakePct += Math.random() * 6;
+        document.getElementById('loading-percent').textContent = Math.min(90, Math.floor(fakePct)) + '%';
+      }
+    }, 250);
+    sceneEl.addEventListener('loaded', () => clearInterval(progressTimer));
+
+    setTimeout(() => {
+      if (loadingEl.style.display !== 'none') {
+        document.getElementById('loading-text').textContent =
+          '⚠️ Still loading — this usually means the .glb model files are large. Check your connection, or compress the models (see gltf.report).';
+      }
+    }, 15000);
+
     const waypoints = [
       { x: -0.55, y: 0.05, z: 0.12 },
       { x: -0.33, y: 0.05, z: 0.12 },
@@ -119,27 +167,25 @@
 
     let currentIndex = 0;
     let jumpDirection = 1;
-    let jumpState = 'idle'; // 'idle' | 'jumping'
+    let jumpState = 'idle';
     let jumpTimer = 0;
     const JUMP_HEIGHT = 0.15;
     const BASE_SCALE = 0.05;
 
-    // Squash & stretch on landing
     let squashTimer = 0;
     const SQUASH_DURATION = 0.25;
 
     astronautEl.setAttribute('position', `${waypoints[0].x} ${waypoints[0].y} ${waypoints[0].z}`);
 
     function startJump(direction) {
-      if (jumpState === 'jumping') return; // ignore taps mid-jump
+      if (jumpState === 'jumping') return;
       jumpDirection = direction;
       jumpState = 'jumping';
       jumpTimer = 0;
-      playBlip(300, 900, 0.25); // whoosh up
+      playBlip(300, 900, 0.25);
     }
 
     function updateAstronaut(dt) {
-      // Squash/stretch decay (runs regardless of jump state)
       if (squashTimer > 0) {
         squashTimer = Math.max(0, squashTimer - dt);
         const intensity = squashTimer / SQUASH_DURATION;
@@ -165,7 +211,6 @@
 
       astronautEl.setAttribute('position', `${x} ${y} ${z}`);
 
-      // Face the direction of travel — moving right vs left flips the astronaut
       const facingDeg = jumpDirection > 0 ? 90 : -90;
       astronautEl.setAttribute('rotation', `0 ${90 + facingDeg} 0`);
 
@@ -173,7 +218,7 @@
         currentIndex = nextIndex;
         jumpState = 'idle';
         squashTimer = SQUASH_DURATION;
-        playBlip(500, 150, 0.2); // thud on landing
+        playBlip(500, 150, 0.2);
       }
     }
 
@@ -186,7 +231,6 @@
       startJump(-1);
     });
 
-    // --- Earth self-rotation + tick loop ---
     const speeds = [
       { earthSpeed: 15, jump: 1.6, label: 'Slow' },
       { earthSpeed: 40, jump: 1.0, label: 'Normal' },
@@ -196,19 +240,29 @@
     let earthAngle = 0;
     let lastTime = performance.now();
     let markerVisible = false;
+    let beaconSweepAngle = 0;
 
     function tick(now) {
       const dt = (now - lastTime) / 1000;
       lastTime = now;
 
-      // Pause all animation while the marker isn't visible — saves battery
-      // and avoids the astronaut/Earth silently animating off-screen
       if (markerVisible) {
         earthAngle = (earthAngle + speeds[speedIndex].earthSpeed * dt) % 360;
         earthEl.setAttribute('rotation', `0 ${earthAngle} 0`);
         updateAstronaut(dt);
-        const pulse = 0.4 + Math.sin(now / 300) * 0.25;
+
+        // Pulse the spotlight's brightness
+        const pulse = 1.8 + Math.sin(now / 300) * 1.2;
         beaconEl.setAttribute('light', 'intensity', pulse);
+
+        // Slowly sweep the beacon rig like a lighthouse
+        beaconSweepAngle = (beaconSweepAngle + 25 * dt) % 360;
+        const sweepOffset = Math.sin(THREE.MathUtils.degToRad(beaconSweepAngle)) * 20;
+        beaconRigEl.setAttribute('rotation', `0 ${sweepOffset} 0`);
+
+        // Fade the visible beam in sync with the pulse
+        const beamOpacity = 0.15 + (pulse - 0.6) * 0.08;
+        beamConeEl.setAttribute('material', 'opacity', Math.max(0.1, Math.min(0.4, beamOpacity)));
       }
       requestAnimationFrame(tick);
     }
@@ -220,7 +274,6 @@
       ensureAudio();
     });
 
-    // --- Audio setup (soft ambient pad sound, distance-modulated) ---
     let audioCtx, oscillator, oscillator2, filterNode, gainNode, audioStarted = false;
 
     function ensureAudio() {
@@ -248,8 +301,6 @@
       if (audioCtx.state === 'suspended') audioCtx.resume();
     }
 
-    // One-shot sound effect (whoosh / thud) — separate short-lived oscillator
-    // so it doesn't fight with the continuous distance-based ambient tone
     function playBlip(freqStart, freqEnd, duration) {
       if (!audioCtx) return;
       const t0 = audioCtx.currentTime;
