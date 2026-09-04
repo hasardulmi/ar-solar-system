@@ -10,38 +10,25 @@
     #instructions {
       position: fixed; top: 16px; left: 16px; right: 16px;
       background: rgba(0,0,0,0.75); color: white; padding: 10px 14px;
-      border-radius: 10px; font-size: 13px; text-align: center; z-index: 999;
+      border-radius: 10px; font-size: 12px; text-align: center; z-index: 999;
     }
     #iss-info {
-      position: fixed; top: 64px; left: 16px; right: 16px;
+      position: fixed; top: 60px; left: 16px; right: 16px;
       background: rgba(0,0,0,0.75); color: white; padding: 8px 14px;
       border-radius: 10px; font-size: 12px; text-align: center; z-index: 999;
     }
     #back-link {
-      position: fixed; bottom: 20px; left: 20px;
-      background: rgba(0,0,0,0.75); color: white; padding: 10px 18px;
-      border-radius: 20px; font-size: 13px; text-decoration: none; z-index: 999;
+      position: fixed; top: 100px; left: 16px;
+      background: rgba(0,0,0,0.75); color: white; padding: 8px 16px;
+      border-radius: 20px; font-size: 12px; text-decoration: none; z-index: 999;
     }
-    #speed-label {
-      position: fixed; bottom: 20px; right: 20px;
-      background: rgba(0,0,0,0.75); color: white; padding: 10px 18px;
-      border-radius: 20px; font-size: 13px; font-weight: bold; z-index: 999;
-    }
-    #loading {
-      position: fixed; top: 110px; left: 16px; right: 16px;
-      background: rgba(0,0,0,0.85); color: #ffcc66; padding: 8px 14px;
-      border-radius: 10px; font-size: 12px; text-align: center;
-      z-index: 500; pointer-events: none;
-    }
-    #loading.hidden { display: none; }
-    #sound-hint {
-      position: fixed; top: 40%; left: 50%; transform: translate(-50%, -50%);
-      background: rgba(0,0,0,0.85); color: white; padding: 14px 22px;
-      border-radius: 12px; font-size: 14px; z-index: 500; text-align: center;
-      pointer-events: none;
+    #speed-btn {
+      position: fixed; top: 100px; right: 16px;
+      background: #4CC3D9; color: white; padding: 8px 16px;
+      border: none; border-radius: 20px; font-size: 12px; font-weight: bold; z-index: 999;
     }
     #debug {
-      position: fixed; bottom: 70px; left: 16px; right: 16px;
+      position: fixed; bottom: 90px; left: 16px; right: 16px;
       background: rgba(0,0,0,0.6); color: #0f0; padding: 6px 12px;
       border-radius: 8px; font-size: 10px; font-family: monospace;
       z-index: 500; text-align: center; pointer-events: none;
@@ -57,13 +44,11 @@
   </script>
 </head>
 <body>
-  <div id="loading">Loading 3D models…</div>
-  <div id="sound-hint">🔊 Tap anywhere to enable sound</div>
-  <div id="instructions">👆 Tap "START AR" below, then move your phone slowly over a well-lit, textured surface (not a blank/dark area) until a blue ring appears. Tap the ring to place. Tap the screen again (inside AR) to change orbit speed — the "Speed" label below just shows the current value, it is not a button.</div>
+  <div id="instructions">👆 Tap "START AR", scan a surface, TAP the ring to place. TAP again to move the astronaut. Get closer for louder sound.</div>
   <div id="iss-info">Loading live ISS location...</div>
-  <div id="debug">debug: waiting…</div>
   <a href="./index.html" id="back-link">← Home</a>
-  <div id="speed-label">Speed: Normal</div>
+  <button id="speed-btn">Speed: Normal</button>
+  <div id="debug">debug: waiting…</div>
 
   <script type="module">
     import * as THREE from 'three';
@@ -72,17 +57,32 @@
 
     let camera, scene, renderer;
     let reticle, hitTestSource = null, hitTestSourceRequested = false;
-    let placedGroup, orbitPivot;
-    let earthLoaded = false, issLoaded = false;
+    let placedGroup, earthContainer = null, astronautContainer = null;
+    let earthLoaded = false, issLoaded = false, placed = false;
 
-    const speedLabels = ['Slow', 'Normal', 'Fast'];
-    const speeds = [0.15, 0.6, 1.5];
+    const speeds = [
+      { jump: 1.6, earthSpeed: 0.15, label: 'Slow' },
+      { jump: 1.0, earthSpeed: 0.4, label: 'Normal' },
+      { jump: 0.5, earthSpeed: 0.9, label: 'Fast' }
+    ];
     let speedIndex = 1;
-    let placed = false;
 
-    const ORBIT_RADIUS = 0.45;
-    const EARTH_SIZE = 0.25;
-    const ISS_SIZE = 0.08;
+    const EARTH_SIZE = 0.08;
+    const ASTRONAUT_SIZE = 0.02;
+    const JUMP_HEIGHT = 0.03;
+
+    const waypoints = [
+      { x: -0.15, y: 0.015, z: 0.03 },
+      { x: -0.09, y: 0.015, z: 0.03 },
+      { x: -0.03, y: 0.015, z: 0.03 },
+      { x:  0.03, y: 0.015, z: 0.03 },
+      { x:  0.09, y: 0.015, z: 0.03 },
+      { x:  0.15, y: 0.015, z: 0.03 }
+    ];
+
+    let currentIndex = 0;
+    let jumpState = 'idle';
+    let jumpTimer = 0;
 
     init();
     animate();
@@ -94,30 +94,21 @@
       const maxDim = Math.max(size.x, size.y, size.z) || 1;
       const scale = targetSize / maxDim;
       object3D.scale.setScalar(scale);
-
       const box2 = new THREE.Box3().setFromObject(object3D);
       const center = new THREE.Vector3();
       box2.getCenter(center);
       object3D.position.sub(center);
-
       const container = new THREE.Group();
       container.add(object3D);
       return container;
     }
 
-    function checkAllLoaded() {
-      if (earthLoaded && issLoaded) {
-        document.getElementById('loading').classList.add('hidden');
+    function attachAstronautIfReady() {
+      if (earthContainer && astronautContainer && astronautContainer.parent !== earthContainer) {
+        earthContainer.add(astronautContainer);
+        astronautContainer.position.set(waypoints[0].x, waypoints[0].y, waypoints[0].z);
       }
     }
-
-    setTimeout(() => {
-      if (!(earthLoaded && issLoaded)) {
-        const el = document.getElementById('loading');
-        el.textContent = '⚠️ Models still not loaded after 10s. Check: (1) you opened this via http:// or https://, NOT by double-clicking the file, (2) earth.glb and iss.glb are in the same folder as this page, (3) browser console (F12) for the real error.';
-        el.style.color = '#ff6666';
-      }
-    }, 10000);
 
     function init() {
       scene = new THREE.Scene();
@@ -135,15 +126,17 @@
       renderer.xr.enabled = true;
       document.body.appendChild(renderer.domElement);
 
-      const arButton = ARButton.createButton(renderer, { requiredFeatures: ['hit-test'] });
+      const arButton = ARButton.createButton(renderer, {
+        requiredFeatures: ['hit-test'],
+        optionalFeatures: ['dom-overlay'],
+        domOverlay: { root: document.body }
+      });
       arButton.style.zIndex = '2000';
-      arButton.style.opacity = '1';
       arButton.addEventListener('click', enableSoundOnce);
       document.body.appendChild(arButton);
 
       const reticleGeo = new THREE.RingGeometry(0.08, 0.1, 32).rotateX(-Math.PI / 2);
-      const reticleMat = new THREE.MeshBasicMaterial({ color: 0x4CC3D9 });
-      reticle = new THREE.Mesh(reticleGeo, reticleMat);
+      reticle = new THREE.Mesh(reticleGeo, new THREE.MeshBasicMaterial({ color: 0x4CC3D9 }));
       reticle.matrixAutoUpdate = false;
       reticle.visible = false;
       scene.add(reticle);
@@ -152,44 +145,19 @@
       placedGroup.visible = false;
       scene.add(placedGroup);
 
-      orbitPivot = new THREE.Group();
-      orbitPivot.rotation.x = THREE.MathUtils.degToRad(20);
-      placedGroup.add(orbitPivot);
-
       const loader = new GLTFLoader();
 
       loader.load('./earth.glb', (gltf) => {
-        const box = new THREE.Box3().setFromObject(gltf.scene);
-        const size = new THREE.Vector3();
-        box.getSize(size);
-        console.log('earth.glb raw bounding box size:', size);
-        const earthContainer = normalizeModel(gltf.scene, EARTH_SIZE);
-        earthContainer.userData.isEarth = true;
+        earthContainer = normalizeModel(gltf.scene, EARTH_SIZE);
         placedGroup.add(earthContainer);
         earthLoaded = true;
-        checkAllLoaded();
-        updateDebug();
-      }, undefined, (err) => {
-        console.error('Failed to load earth.glb', err);
-        document.getElementById('loading').textContent = 'Could not load earth.glb — check the file exists next to this page and you are using http(s)://, not file://.';
-        document.getElementById('loading').style.color = '#ff6666';
+        attachAstronautIfReady();
       });
 
       loader.load('./iss.glb', (gltf) => {
-        const box = new THREE.Box3().setFromObject(gltf.scene);
-        const size = new THREE.Vector3();
-        box.getSize(size);
-        console.log('iss.glb raw bounding box size:', size);
-        const issContainer = normalizeModel(gltf.scene, ISS_SIZE);
-        issContainer.position.set(ORBIT_RADIUS, 0, 0);
-        orbitPivot.add(issContainer);
+        astronautContainer = normalizeModel(gltf.scene, ASTRONAUT_SIZE);
         issLoaded = true;
-        checkAllLoaded();
-        updateDebug();
-      }, undefined, (err) => {
-        console.error('Failed to load iss.glb', err);
-        document.getElementById('loading').textContent = 'Could not load iss.glb — check the file exists next to this page and you are using http(s)://, not file://.';
-        document.getElementById('loading').style.color = '#ff6666';
+        attachAstronautIfReady();
       });
 
       renderer.xr.addEventListener('sessionend', onSessionEnd);
@@ -200,6 +168,12 @@
 
       window.addEventListener('resize', onWindowResize);
 
+      document.getElementById('speed-btn').addEventListener('click', () => {
+        speedIndex = (speedIndex + 1) % speeds.length;
+        document.getElementById('speed-btn').textContent = 'Speed: ' + speeds[speedIndex].label;
+        enableSoundOnce();
+      });
+
       document.body.addEventListener('click', enableSoundOnce);
       document.body.addEventListener('touchstart', enableSoundOnce);
 
@@ -207,18 +181,45 @@
       setInterval(updateISSLocation, 5000);
     }
 
+    function startJump() {
+      if (!astronautContainer || jumpState === 'jumping') return;
+      jumpState = 'jumping';
+      jumpTimer = 0;
+    }
+
+    function updateAstronaut(dt) {
+      if (!astronautContainer || jumpState !== 'jumping') return;
+
+      const duration = speeds[speedIndex].jump;
+      jumpTimer += dt;
+      const t = Math.min(1, jumpTimer / duration);
+
+      const nextIndex = (currentIndex + 1) % waypoints.length;
+      const from = waypoints[currentIndex];
+      const to = waypoints[nextIndex];
+
+      const x = from.x + (to.x - from.x) * t;
+      const z = from.z + (to.z - from.z) * t;
+      const arc = Math.sin(t * Math.PI) * JUMP_HEIGHT;
+      const y = from.y + (to.y - from.y) * t + arc;
+
+      astronautContainer.position.set(x, y, z);
+
+      if (t >= 1) {
+        currentIndex = nextIndex;
+        jumpState = 'idle';
+      }
+    }
+
     function onSelect() {
       enableSoundOnce();
-
       if (!placed && reticle.visible) {
         placedGroup.position.setFromMatrixPosition(reticle.matrix);
         placedGroup.visible = true;
         placed = true;
         reticle.visible = false;
       } else if (placed) {
-        speedIndex = (speedIndex + 1) % speeds.length;
-        document.getElementById('speed-label').textContent = 'Speed: ' + speedLabels[speedIndex];
-        playSpeedChangeBlip();
+        startJump();
       }
     }
 
@@ -226,25 +227,6 @@
       placed = false;
       placedGroup.visible = false;
       reticle.visible = false;
-    }
-
-    function updateDebug() {
-      const el = document.getElementById('debug');
-      if (!el) return;
-      let distText = '--';
-      if (placed) {
-        camera.getWorldPosition(camWorldPos);
-        placedGroup.getWorldPosition(groupWorldPos);
-        const d = camWorldPos.distanceTo(groupWorldPos);
-        distText = `${d.toFixed(2)}m (range seen: ${minSeen === Infinity ? '--' : minSeen.toFixed(2)}–${maxSeen === -Infinity ? '--' : maxSeen.toFixed(2)}m)`;
-      }
-      let hint = '';
-      if (renderer.xr.isPresenting && !placed && hitTestSource && !reticle.visible) {
-        hint = ' ⚠️ No surface found yet — move phone slowly over a well-lit, textured surface (not blank/dark/shiny).';
-      }
-      el.textContent =
-        `earth: ${earthLoaded} | iss: ${issLoaded} | reticle: ${reticle ? reticle.visible : '--'} | ` +
-        `placed: ${placed} | audio: ${audioReady} | dist: ${distText}${hint}`;
     }
 
     function onWindowResize() {
@@ -261,50 +243,28 @@
         return;
       }
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-
       oscillator = audioCtx.createOscillator();
       oscillator.type = 'sine';
-      oscillator.frequency.value = 180;
-
+      oscillator.frequency.value = 130;
       oscillator2 = audioCtx.createOscillator();
       oscillator2.type = 'sine';
-      oscillator2.frequency.value = 180 * 1.5;
-
+      oscillator2.frequency.value = 130 * 1.5;
       filterNode = audioCtx.createBiquadFilter();
       filterNode.type = 'lowpass';
-      filterNode.frequency.value = 600;
-
+      filterNode.frequency.value = 800;
       gainNode = audioCtx.createGain();
       gainNode.gain.value = 0;
-
       oscillator.connect(filterNode);
       oscillator2.connect(filterNode);
       filterNode.connect(gainNode);
       gainNode.connect(audioCtx.destination);
-
       oscillator.start();
       oscillator2.start();
       audioReady = true;
-
-      document.getElementById('sound-hint').style.display = 'none';
-    }
-
-    function playSpeedChangeBlip() {
-      if (!audioReady) return;
-      const now = audioCtx.currentTime;
-      const basePitch = 180 + speedIndex * 120;
-      oscillator.frequency.setTargetAtTime(basePitch, now, 0.05);
-      oscillator2.frequency.setTargetAtTime(basePitch * 1.5, now, 0.05);
-      gainNode.gain.cancelScheduledValues(now);
-      gainNode.gain.setValueAtTime(gainNode.gain.value, now);
-      gainNode.gain.linearRampToValueAtTime(0.35, now + 0.05);
-      gainNode.gain.linearRampToValueAtTime(0.12, now + 0.3);
     }
 
     const camWorldPos = new THREE.Vector3();
     const groupWorldPos = new THREE.Vector3();
-    let minSeen = Infinity;
-    let maxSeen = -Infinity;
 
     function updateSound() {
       if (!audioReady) return;
@@ -313,18 +273,22 @@
         placedGroup.getWorldPosition(groupWorldPos);
         const distance = camWorldPos.distanceTo(groupWorldPos);
 
-        if (distance < minSeen) minSeen = distance;
-        if (distance > maxSeen) maxSeen = distance;
-        const range = Math.max(maxSeen - minSeen, 0.0001);
+        const closeness = Math.min(1, Math.max(0, 1 - (distance - 0.2) / 1.3));
+        const volume = 0.15 + closeness * 0.35;
+        const filterFreq = 400 + closeness * 1200;
+        const pitch = 120 + closeness * 40;
 
-        const closeness = 1 - (distance - minSeen) / range;
-        const volume = 0.08 + closeness * 0.22;
-        const filterFreq = 400 + closeness * 900 + speedIndex * 200;
+        gainNode.gain.setTargetAtTime(volume, audioCtx.currentTime, 0.15);
+        filterNode.frequency.setTargetAtTime(filterFreq, audioCtx.currentTime, 0.15);
+        oscillator.frequency.setTargetAtTime(pitch, audioCtx.currentTime, 0.15);
+        oscillator2.frequency.setTargetAtTime(pitch * 1.5, audioCtx.currentTime, 0.15);
 
-        gainNode.gain.setTargetAtTime(volume, audioCtx.currentTime, 0.3);
-        filterNode.frequency.setTargetAtTime(filterFreq, audioCtx.currentTime, 0.3);
+        document.getElementById('debug').textContent =
+          `earth:${earthLoaded} iss:${issLoaded} placed:${placed} | planet: ${currentIndex + 1}/${waypoints.length} | jump: ${jumpState} | speed: ${speeds[speedIndex].label} | dist: ${distance.toFixed(2)}m vol: ${volume.toFixed(2)}`;
       } else {
         gainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.3);
+        document.getElementById('debug').textContent =
+          `earth:${earthLoaded} iss:${issLoaded} placed:${placed} | planet: ${currentIndex + 1}/${waypoints.length} | jump: ${jumpState} | speed: ${speeds[speedIndex].label}`;
       }
     }
 
@@ -341,18 +305,12 @@
     }
 
     const clock = new THREE.Clock();
-
-    function animate() {
-      renderer.setAnimationLoop(render);
-    }
+    function animate() { renderer.setAnimationLoop(render); }
 
     function render(timestamp, frame) {
       const delta = clock.getDelta();
-
-      placedGroup.children.forEach((child) => {
-        if (child.userData.isEarth) child.rotation.y += delta * 0.6;
-      });
-      orbitPivot.rotation.y += delta * speeds[speedIndex];
+      if (earthContainer) earthContainer.rotation.y += delta * speeds[speedIndex].earthSpeed;
+      updateAstronaut(delta);
 
       if (frame) {
         const referenceSpace = renderer.xr.getReferenceSpace();
@@ -374,9 +332,8 @@
         if (hitTestSource && !placed) {
           const hitTestResults = frame.getHitTestResults(hitTestSource);
           if (hitTestResults.length > 0) {
-            const hit = hitTestResults[0];
             reticle.visible = true;
-            reticle.matrix.fromArray(hit.getPose(referenceSpace).transform.matrix);
+            reticle.matrix.fromArray(hitTestResults[0].getPose(referenceSpace).transform.matrix);
           } else {
             reticle.visible = false;
           }
@@ -384,7 +341,6 @@
       }
 
       updateSound();
-      updateDebug();
       renderer.render(scene, camera);
     }
   </script>
