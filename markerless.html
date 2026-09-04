@@ -22,11 +22,22 @@
       background: rgba(0,0,0,0.75); color: white; padding: 8px 16px;
       border-radius: 20px; font-size: 12px; text-decoration: none; z-index: 999;
     }
-    #speed-btn {
-      position: fixed; top: 100px; right: 16px;
-      background: #4CC3D9; color: white; padding: 8px 16px;
-      border: none; border-radius: 20px; font-size: 12px; font-weight: bold; z-index: 999;
+    #controls {
+      position: fixed; bottom: 20px; right: 16px;
+      display: flex; flex-direction: column; gap: 8px; z-index: 2000;
     }
+    #controls-row { display: flex; gap: 8px; }
+    #next-btn, #prev-btn, #speed-btn {
+      background: #4CC3D9; color: white; padding: 8px 14px;
+      border: none; border-radius: 20px; font-size: 12px; font-weight: bold;
+    }
+    #loading {
+      position: fixed; top: 100px; left: 16px; right: 16px;
+      background: rgba(0,0,0,0.85); color: #ffcc66; padding: 8px 14px;
+      border-radius: 10px; font-size: 12px; text-align: center;
+      z-index: 500; pointer-events: none;
+    }
+    #loading.hidden { display: none; }
     #debug {
       position: fixed; bottom: 90px; left: 16px; right: 16px;
       background: rgba(0,0,0,0.6); color: #0f0; padding: 6px 12px;
@@ -44,10 +55,17 @@
   </script>
 </head>
 <body>
-  <div id="instructions">👆 Tap "START AR", scan a surface, TAP the ring to place. TAP again to move the astronaut. Get closer for louder sound.</div>
+  <div id="loading">Loading 3D models…</div>
+  <div id="instructions">👆 Tap "START AR", scan a surface, TAP the ring to place. Use Next/Prev to move the astronaut. Get closer for louder sound.</div>
   <div id="iss-info">Loading live ISS location...</div>
   <a href="./index.html" id="back-link">← Home</a>
-  <button id="speed-btn">Speed: Normal</button>
+  <div id="controls">
+    <div id="controls-row">
+      <button id="prev-btn">⏮ Prev</button>
+      <button id="next-btn">🚀 Next</button>
+    </div>
+    <button id="speed-btn">Speed: Normal</button>
+  </div>
   <div id="debug">debug: waiting…</div>
 
   <script type="module">
@@ -55,9 +73,12 @@
     import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
     import { ARButton } from 'three/addons/webxr/ARButton.js';
 
+    // Hide the debug overlay by default — add ?debug to the URL to see it
+    if (!location.search.includes('debug')) document.getElementById('debug').style.display = 'none';
+
     let camera, scene, renderer;
     let reticle, hitTestSource = null, hitTestSourceRequested = false;
-    let placedGroup, earthContainer = null, astronautContainer = null;
+    let placedGroup, earthContainer = null, astronautContainer = null, beaconLight = null;
     let earthLoaded = false, issLoaded = false, placed = false;
 
     const speeds = [
@@ -81,8 +102,15 @@
     ];
 
     let currentIndex = 0;
+    let jumpDirection = 1;
     let jumpState = 'idle';
     let jumpTimer = 0;
+
+    // Squash & stretch on landing — astronautContainer's own scale is the
+    // "neutral" (1,1,1) wrapper from normalizeModel, so we can animate it
+    // directly as a multiplier without needing to track a base scale.
+    let squashTimer = 0;
+    const SQUASH_DURATION = 0.25;
 
     init();
     animate();
@@ -103,12 +131,35 @@
       return container;
     }
 
+    function enableShadows(object3D) {
+      object3D.traverse((node) => {
+        if (node.isMesh) {
+          node.castShadow = true;
+          node.receiveShadow = true;
+        }
+      });
+    }
+
     function attachAstronautIfReady() {
       if (earthContainer && astronautContainer && astronautContainer.parent !== earthContainer) {
         earthContainer.add(astronautContainer);
         astronautContainer.position.set(waypoints[0].x, waypoints[0].y, waypoints[0].z);
+
+        beaconLight = new THREE.PointLight(0x66ccff, 0.6, 0.4);
+        astronautContainer.add(beaconLight);
+
+        document.getElementById('loading').classList.add('hidden');
       }
     }
+
+    setTimeout(() => {
+      if (!(earthLoaded && issLoaded)) {
+        const el = document.getElementById('loading');
+        el.textContent = '⚠️ Models still not loaded after 10s. Check you opened this via http(s)://, not by double-clicking the file, and that earth.glb/iss.glb are in the same folder.';
+        el.style.color = '#ff6666';
+        el.classList.remove('hidden');
+      }
+    }, 10000);
 
     function init() {
       scene = new THREE.Scene();
@@ -116,14 +167,26 @@
 
       const light = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2);
       scene.add(light);
+
       const dirLight = new THREE.DirectionalLight(0xffffff, 1);
       dirLight.position.set(1, 1, 1);
+      dirLight.castShadow = true;
+      dirLight.shadow.mapSize.set(1024, 1024);
+      dirLight.shadow.camera.near = 0.01;
+      dirLight.shadow.camera.far = 5;
+      dirLight.shadow.camera.left = -0.3;
+      dirLight.shadow.camera.right = 0.3;
+      dirLight.shadow.camera.top = 0.3;
+      dirLight.shadow.camera.bottom = -0.3;
       scene.add(dirLight);
 
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
       renderer.setPixelRatio(window.devicePixelRatio);
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.xr.enabled = true;
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      renderer.outputColorSpace = THREE.SRGBColorSpace; // correct PBR color rendering, matches marker.html's colorManagement
       document.body.appendChild(renderer.domElement);
 
       const arButton = ARButton.createButton(renderer, {
@@ -132,6 +195,7 @@
         domOverlay: { root: document.body }
       });
       arButton.style.zIndex = '2000';
+      arButton.style.opacity = '1'; // library defaults to 0.5 with no hover-brighten on touch devices
       arButton.addEventListener('click', enableSoundOnce);
       document.body.appendChild(arButton);
 
@@ -148,16 +212,30 @@
       const loader = new GLTFLoader();
 
       loader.load('./earth.glb', (gltf) => {
+        enableShadows(gltf.scene);
         earthContainer = normalizeModel(gltf.scene, EARTH_SIZE);
         placedGroup.add(earthContainer);
         earthLoaded = true;
         attachAstronautIfReady();
+      }, undefined, (err) => {
+        console.error('Failed to load earth.glb', err);
+        const el = document.getElementById('loading');
+        el.textContent = 'Could not load earth.glb — check the file exists next to this page.';
+        el.style.color = '#ff6666';
+        el.classList.remove('hidden');
       });
 
       loader.load('./iss.glb', (gltf) => {
+        enableShadows(gltf.scene);
         astronautContainer = normalizeModel(gltf.scene, ASTRONAUT_SIZE);
         issLoaded = true;
         attachAstronautIfReady();
+      }, undefined, (err) => {
+        console.error('Failed to load iss.glb', err);
+        const el = document.getElementById('loading');
+        el.textContent = 'Could not load iss.glb — check the file exists next to this page.';
+        el.style.color = '#ff6666';
+        el.classList.remove('hidden');
       });
 
       renderer.xr.addEventListener('sessionend', onSessionEnd);
@@ -173,6 +251,14 @@
         document.getElementById('speed-btn').textContent = 'Speed: ' + speeds[speedIndex].label;
         enableSoundOnce();
       });
+      document.getElementById('next-btn').addEventListener('click', () => {
+        enableSoundOnce();
+        startJump(1);
+      });
+      document.getElementById('prev-btn').addEventListener('click', () => {
+        enableSoundOnce();
+        startJump(-1);
+      });
 
       document.body.addEventListener('click', enableSoundOnce);
       document.body.addEventListener('touchstart', enableSoundOnce);
@@ -181,20 +267,32 @@
       setInterval(updateISSLocation, 5000);
     }
 
-    function startJump() {
+    function startJump(direction) {
       if (!astronautContainer || jumpState === 'jumping') return;
+      jumpDirection = direction;
       jumpState = 'jumping';
       jumpTimer = 0;
+      playBlip(300, 900, 0.25); // whoosh
     }
 
     function updateAstronaut(dt) {
-      if (!astronautContainer || jumpState !== 'jumping') return;
+      if (!astronautContainer) return;
+
+      if (squashTimer > 0) {
+        squashTimer = Math.max(0, squashTimer - dt);
+        const intensity = squashTimer / SQUASH_DURATION;
+        const sY = 1 - 0.3 * intensity;
+        const sXZ = 1 + 0.15 * intensity;
+        astronautContainer.scale.set(sXZ, sY, sXZ);
+      }
+
+      if (jumpState !== 'jumping') return;
 
       const duration = speeds[speedIndex].jump;
       jumpTimer += dt;
       const t = Math.min(1, jumpTimer / duration);
 
-      const nextIndex = (currentIndex + 1) % waypoints.length;
+      const nextIndex = (currentIndex + jumpDirection + waypoints.length) % waypoints.length;
       const from = waypoints[currentIndex];
       const to = waypoints[nextIndex];
 
@@ -205,9 +303,14 @@
 
       astronautContainer.position.set(x, y, z);
 
+      // Face the direction of travel
+      astronautContainer.rotation.y = jumpDirection > 0 ? Math.PI / 2 : -Math.PI / 2;
+
       if (t >= 1) {
         currentIndex = nextIndex;
         jumpState = 'idle';
+        squashTimer = SQUASH_DURATION;
+        playBlip(500, 150, 0.2); // thud
       }
     }
 
@@ -218,9 +321,9 @@
         placedGroup.visible = true;
         placed = true;
         reticle.visible = false;
-      } else if (placed) {
-        startJump();
       }
+      // Movement is now Next/Prev-button driven (see controls), for
+      // consistency with the marker-based experience's UI language.
     }
 
     function onSessionEnd() {
@@ -263,8 +366,27 @@
       audioReady = true;
     }
 
+    function playBlip(freqStart, freqEnd, duration) {
+      if (!audioCtx) return;
+      const t0 = audioCtx.currentTime;
+      const osc = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freqStart, t0);
+      osc.frequency.exponentialRampToValueAtTime(Math.max(freqEnd, 1), t0 + duration);
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(0.3, t0 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+      osc.connect(g);
+      g.connect(audioCtx.destination);
+      osc.start(t0);
+      osc.stop(t0 + duration + 0.05);
+    }
+
     const camWorldPos = new THREE.Vector3();
     const groupWorldPos = new THREE.Vector3();
+    let minSeen = Infinity;
+    let maxSeen = -Infinity;
 
     function updateSound() {
       if (!audioReady) return;
@@ -273,7 +395,11 @@
         placedGroup.getWorldPosition(groupWorldPos);
         const distance = camWorldPos.distanceTo(groupWorldPos);
 
-        const closeness = Math.min(1, Math.max(0, 1 - (distance - 0.2) / 1.3));
+        if (distance < minSeen) minSeen = distance;
+        if (distance > maxSeen) maxSeen = distance;
+        const range = Math.max(maxSeen - minSeen, 0.0001);
+        const closeness = 1 - (distance - minSeen) / range;
+
         const volume = 0.15 + closeness * 0.35;
         const filterFreq = 400 + closeness * 1200;
         const pitch = 120 + closeness * 40;
@@ -311,6 +437,7 @@
       const delta = clock.getDelta();
       if (earthContainer) earthContainer.rotation.y += delta * speeds[speedIndex].earthSpeed;
       updateAstronaut(delta);
+      if (beaconLight) beaconLight.intensity = 0.4 + Math.sin(timestamp / 300) * 0.25;
 
       if (frame) {
         const referenceSpace = renderer.xr.getReferenceSpace();
