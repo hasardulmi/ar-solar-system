@@ -27,8 +27,11 @@
       position: fixed; bottom: 20px; right: 20px;
       display: flex; flex-direction: column; gap: 8px; z-index: 999;
     }
-    #next-btn, #speed-btn {
-      background: #4CC3D9; color: white; padding: 10px 18px;
+    #controls-row {
+      display: flex; gap: 8px;
+    }
+    #next-btn, #prev-btn, #speed-btn {
+      background: #4CC3D9; color: white; padding: 10px 14px;
       border: none; border-radius: 20px; font-size: 13px; font-weight: bold;
     }
     #loading {
@@ -41,18 +44,21 @@
 </head>
 <body>
   <div id="loading">Loading AR experience...</div>
-  <div id="instructions">📷 Point at the marker · tap "Next Planet" to move the astronaut</div>
+  <div id="instructions">📷 Point at the marker · tap "Next/Prev" to move the astronaut</div>
   <div id="debug">distance: -- | volume: --</div>
   <a href="./index.html" id="back-link">← Home</a>
   <div id="controls">
-    <button id="next-btn">🚀 Next Planet</button>
+    <div id="controls-row">
+      <button id="prev-btn">⏮ Prev</button>
+      <button id="next-btn">🚀 Next</button>
+    </div>
     <button id="speed-btn">Speed: Normal</button>
   </div>
 
   <a-scene
     mindar-image="imageTargetSrc: ./targets.mind;"
     color-space="sRGB"
-    renderer="colorManagement: true, physicallyCorrectLights"
+    renderer="colorManagement: true, physicallyCorrectLights: true, shadowMap.enabled: true"
     vr-mode-ui="enabled: false"
     device-orientation-permission-ui="enabled: false"
   >
@@ -64,11 +70,20 @@
     <a-camera id="camera" position="0 0 0" look-controls="enabled: false"></a-camera>
 
     <a-light type="ambient" color="#ffffff" intensity="0.7"></a-light>
-    <a-light type="directional" color="#ffffff" intensity="0.8" position="1 1 1"></a-light>
+    <a-entity
+      light="type: directional; color: #ffffff; intensity: 0.8; castShadow: true;
+             shadowMapHeight: 1024; shadowMapWidth: 1024;
+             shadowCameraLeft: -0.6; shadowCameraRight: 0.6;
+             shadowCameraTop: 0.6; shadowCameraBottom: -0.6;
+             shadowCameraNear: 0.01; shadowCameraFar: 5"
+      position="1 1 1">
+    </a-entity>
 
     <a-entity id="target" mindar-image-target="targetIndex: 0">
-      <a-entity id="earth" gltf-model="#earthModel" position="0 0 0.1" scale="0.3 0.3 0.3"></a-entity>
-      <a-entity id="astronaut" gltf-model="#issModel" scale="0.05 0.05 0.05" rotation="0 90 0"></a-entity>
+      <a-entity id="earth" gltf-model="#earthModel" position="0 0 0.1" scale="0.3 0.3 0.3" shadow="receive: true"></a-entity>
+      <a-entity id="astronaut" gltf-model="#issModel" scale="0.05 0.05 0.05" rotation="0 90 0" shadow="cast: true">
+        <a-entity id="beacon" light="type: point; color: #66ccff; intensity: 0.6; distance: 1.2" position="0 0.1 0"></a-entity>
+      </a-entity>
     </a-entity>
   </a-scene>
 
@@ -79,15 +94,20 @@
     const cameraEl = document.querySelector('#camera');
     const earthEl = document.querySelector('#earth');
     const astronautEl = document.querySelector('#astronaut');
+    const beaconEl = document.querySelector('#beacon');
     const speedBtn = document.querySelector('#speed-btn');
     const nextBtn = document.querySelector('#next-btn');
+    const prevBtn = document.querySelector('#prev-btn');
     const debugEl = document.querySelector('#debug');
+
+    // Hide the debug overlay by default — add ?debug to the URL to see it
+    if (!location.search.includes('debug')) debugEl.style.display = 'none';
 
     sceneEl.addEventListener('renderstart', () => {
       loadingEl.style.display = 'none';
     });
 
-    // --- Planet waypoints (X positions along the model — ADJUST these numbers so they line up with your image's planets) ---
+    // --- Planet waypoints (X positions along the model) ---
     const waypoints = [
       { x: -0.55, y: 0.05, z: 0.12 },
       { x: -0.33, y: 0.05, z: 0.12 },
@@ -98,26 +118,43 @@
     ];
 
     let currentIndex = 0;
+    let jumpDirection = 1;
     let jumpState = 'idle'; // 'idle' | 'jumping'
     let jumpTimer = 0;
     const JUMP_HEIGHT = 0.15;
+    const BASE_SCALE = 0.05;
+
+    // Squash & stretch on landing
+    let squashTimer = 0;
+    const SQUASH_DURATION = 0.25;
 
     astronautEl.setAttribute('position', `${waypoints[0].x} ${waypoints[0].y} ${waypoints[0].z}`);
 
-    function startJump() {
+    function startJump(direction) {
       if (jumpState === 'jumping') return; // ignore taps mid-jump
+      jumpDirection = direction;
       jumpState = 'jumping';
       jumpTimer = 0;
+      playBlip(300, 900, 0.25); // whoosh up
     }
 
     function updateAstronaut(dt) {
+      // Squash/stretch decay (runs regardless of jump state)
+      if (squashTimer > 0) {
+        squashTimer = Math.max(0, squashTimer - dt);
+        const intensity = squashTimer / SQUASH_DURATION;
+        const scaleY = BASE_SCALE * (1 - 0.3 * intensity);
+        const scaleXZ = BASE_SCALE * (1 + 0.15 * intensity);
+        astronautEl.setAttribute('scale', `${scaleXZ} ${scaleY} ${scaleXZ}`);
+      }
+
       if (jumpState !== 'jumping') return;
 
       const duration = speeds[speedIndex].jump;
       jumpTimer += dt;
       const t = Math.min(1, jumpTimer / duration);
 
-      const nextIndex = (currentIndex + 1) % waypoints.length;
+      const nextIndex = (currentIndex + jumpDirection + waypoints.length) % waypoints.length;
       const from = waypoints[currentIndex];
       const to = waypoints[nextIndex];
 
@@ -128,15 +165,25 @@
 
       astronautEl.setAttribute('position', `${x} ${y} ${z}`);
 
+      // Face the direction of travel — moving right vs left flips the astronaut
+      const facingDeg = jumpDirection > 0 ? 90 : -90;
+      astronautEl.setAttribute('rotation', `0 ${90 + facingDeg} 0`);
+
       if (t >= 1) {
         currentIndex = nextIndex;
         jumpState = 'idle';
+        squashTimer = SQUASH_DURATION;
+        playBlip(500, 150, 0.2); // thud on landing
       }
     }
 
     nextBtn.addEventListener('click', () => {
       ensureAudio();
-      startJump();
+      startJump(1);
+    });
+    prevBtn.addEventListener('click', () => {
+      ensureAudio();
+      startJump(-1);
     });
 
     // --- Earth self-rotation + tick loop ---
@@ -148,13 +195,21 @@
     let speedIndex = 1;
     let earthAngle = 0;
     let lastTime = performance.now();
+    let markerVisible = false;
 
     function tick(now) {
       const dt = (now - lastTime) / 1000;
       lastTime = now;
-      earthAngle = (earthAngle + speeds[speedIndex].earthSpeed * dt) % 360;
-      earthEl.setAttribute('rotation', `0 ${earthAngle} 0`);
-      updateAstronaut(dt);
+
+      // Pause all animation while the marker isn't visible — saves battery
+      // and avoids the astronaut/Earth silently animating off-screen
+      if (markerVisible) {
+        earthAngle = (earthAngle + speeds[speedIndex].earthSpeed * dt) % 360;
+        earthEl.setAttribute('rotation', `0 ${earthAngle} 0`);
+        updateAstronaut(dt);
+        const pulse = 0.4 + Math.sin(now / 300) * 0.25;
+        beaconEl.setAttribute('light', 'intensity', pulse);
+      }
       requestAnimationFrame(tick);
     }
     requestAnimationFrame(tick);
@@ -165,9 +220,8 @@
       ensureAudio();
     });
 
-    // --- Audio setup (soft ambient pad sound) ---
+    // --- Audio setup (soft ambient pad sound, distance-modulated) ---
     let audioCtx, oscillator, oscillator2, filterNode, gainNode, audioStarted = false;
-    let markerVisible = false;
 
     function ensureAudio() {
       if (!audioStarted) {
@@ -192,6 +246,25 @@
         audioStarted = true;
       }
       if (audioCtx.state === 'suspended') audioCtx.resume();
+    }
+
+    // One-shot sound effect (whoosh / thud) — separate short-lived oscillator
+    // so it doesn't fight with the continuous distance-based ambient tone
+    function playBlip(freqStart, freqEnd, duration) {
+      if (!audioCtx) return;
+      const t0 = audioCtx.currentTime;
+      const osc = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freqStart, t0);
+      osc.frequency.exponentialRampToValueAtTime(Math.max(freqEnd, 1), t0 + duration);
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(0.3, t0 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+      osc.connect(g);
+      g.connect(audioCtx.destination);
+      osc.start(t0);
+      osc.stop(t0 + duration + 0.05);
     }
 
     document.body.addEventListener('touchstart', ensureAudio);
